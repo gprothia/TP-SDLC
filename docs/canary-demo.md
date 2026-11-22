@@ -20,7 +20,7 @@ Rules: `standards/slo.md`. Pipeline: `.github/workflows/release.yml`. Antigravit
 - Production space up: `scripts/prod.sh status` (create it with `scripts/prod.sh up`).
 - The demo change is ready and green: PR **"RSA-005: verified driver badge"** (base `main`).
 - Tabs: Antigravity; GitHub **Actions**; Cloud Console **Kubernetes Engine → Workloads**
-  filtered to namespace `aaademo3-prod`; `specs/RSA-005-verified-driver.md` at its **SLO**.
+  filtered to namespace `tp-sdlc-prod`; `specs/RSA-005-verified-driver.md` at its **SLO**.
 - Optional: rehearse once, so GKE capacity is warm.
 
 ## Scene 1: a "harmless" change is caught (about 10 min)

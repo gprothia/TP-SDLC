@@ -22,8 +22,8 @@ env:
   AR: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPO }}
   WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
   CI_SA: ${{ vars.CI_SERVICE_ACCOUNT }}
-  API_SERVICE: aaademo3-uat-api
-  WEB_SERVICE: aaademo3-uat-web
+  API_SERVICE: tp-sdlc-uat-api
+  WEB_SERVICE: tp-sdlc-uat-web
   API_SA: uat-api@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
   WEB_SA: uat-web@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
   SHA: ${{ github.sha }}
@@ -70,7 +70,7 @@ jobs:
             --service-account "$API_SA" --no-allow-unauthenticated --port 8080 \
             --min-instances 0 --max-instances 1 \
             --set-env-vars "SEED_TEST_DATA=true,ENABLE_TEST_HOOKS=false" \
-            --labels "env=uat,app=aaademo3,commit=${SHA:0:7}" --quiet
+            --labels "env=uat,app=tp-sdlc,commit=${SHA:0:7}" --quiet
           api_url=$(gcloud run services describe "$API_SERVICE" --region "$REGION" --format='value(status.url)')
           echo "API_URL=$api_url" >> "$GITHUB_ENV"
           # Who may call the private API: the website, and this pipeline (for smoke tests).
@@ -85,7 +85,7 @@ jobs:
             --service-account "$WEB_SA" --allow-unauthenticated --port 3000 \
             --min-instances 0 --max-instances 2 \
             --set-env-vars "API_URL=$API_URL,API_AUDIENCE=$API_URL" \
-            --labels "env=uat,app=aaademo3,commit=${SHA:0:7}" --quiet
+            --labels "env=uat,app=tp-sdlc,commit=${SHA:0:7}" --quiet
 
       - name: UAT URLs
         id: urls

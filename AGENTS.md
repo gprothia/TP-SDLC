@@ -142,7 +142,7 @@ issue with a summary of the decisions (never edit the issue description).
 | Local | your machine | you / the agent | on (`ENABLE_TEST_HOOKS=true`) |
 | Dev sandbox | GKE `dev-<repo>-<branch>` | `scripts/sandbox.sh` before the PR | on |
 | PR sandbox | GKE `<repo>-pr-<N>` | CI on every PR | on |
-| **UAT** | **Cloud Run** `aaademo3-uat-web` / `-api` | **CI on every merge to `main`** | **off** |
+| **UAT** | **Cloud Run** `tp-sdlc-uat-web` / `-api` | **CI on every merge to `main`** | **off** |
 | **Production** (demo) | GKE `<repo>-prod`: API, 9 stable + 1 canary | **release workflow** after UAT | **off** |
 
 Agents never deploy to UAT themselves; merging is a person's decision and the pipeline does
