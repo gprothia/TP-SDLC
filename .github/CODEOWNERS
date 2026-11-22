@@ -1,0 +1,12 @@
+# Who must approve changes (standards/security.md SEC-5).
+# In a real organisation these are teams, e.g. @aaa/security; this demo has one owner.
+/standards/          @gprothia
+/standards/aaa.md    @gprothia
+/deploy/             @gprothia
+/.github/workflows/  @gprothia
+# The release gate (standards/slo.md SLO-2): changing it is never a standard change.
+/scripts/classify_change.py  @gprothia
+/scripts/check_slo.py        @gprothia
+/scripts/prod.sh             @gprothia
+/tools/loadgen.py            @gprothia
+/.github/sre/                @gprothia

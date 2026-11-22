@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Track My Rescue — Roadside Assistance</title>
+  <style>
+    :root {
+      --aaa-blue: #0B3D91;
+      --aaa-blue-dark: #072A66;
+      --aaa-blue-light: #E8F0FE;
+      --aaa-blue-soft: #F3F7FD;
+      --accent-green: #137333;
+      --accent-green-bg: #E6F4EA;
+      --accent-amber: #B06000;
+      --accent-amber-bg: #FEF7E0;
+      --danger: #C5221F;
+      --danger-bg: #FCE8E6;
+      --text-main: #1F2937;
+      --text-muted: #5F6368;
+      --border: #DCE3EE;
+      --bg-page: #F5F7FB;
+      --bg-card: #FFFFFF;
+      --shadow-sm: 0 2px 8px rgba(11, 61, 145, 0.06);
+      --shadow-md: 0 8px 24px rgba(11, 61, 145, 0.10);
+      --radius: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg-page);
+      color: var(--text-main);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top Brand Bar */
+    .topbar {
+      background: var(--aaa-blue);
+      color: #FFFFFF;
+      padding: 14px 20px;
+      box-shadow: 0 2px 10px rgba(11, 61, 145, 0.18);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .topbar-inner {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: -0.01em;
+    }
+
+    .brand-badge {
+      background: #FFFFFF;
+      color: var(--aaa-blue);
+      font-weight: 800;
+      font-size: 0.8rem;
+      padding: 4px 8px;
+      border-radius: 8px;
+      letter-spacing: 0.03em;
+    }
+
+    .request-pill {
+      background: rgba(255, 255, 255, 0.16);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    /* Main Container */
+    .container {
+      max-width: 720px;
+      margin: 20px auto 40px;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-sm);
+      padding: 20px;
+    }
+
+    /* ETA Hero Card */
+    .eta-card {
+      background: linear-gradient(135deg, var(--aaa-blue) 0%, #1452B8 100%);
+      color: #FFFFFF;
+      border: none;
+      box-shadow: var(--shadow-md);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .eta-card.arrived {
+      background: linear-gradient(135deg, #137333 0%, #1E8E3E 100%);
+    }
+
+    .eta-card.cancelled {
+      background: linear-gradient(135deg, #4B5563 0%, #6B7280 100%);
+    }
+
+    .eta-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(255, 255, 255, 0.18);
+      padding: 5px 11px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #6EE7B7;
+      box-shadow: 0 0 0 0 rgba(110, 231, 183, 0.7);
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(110, 231, 183, 0.7); }
+      70% { box-shadow: 0 0 0 9px rgba(110, 231, 183, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(110, 231, 183, 0); }
+    }
+
+    .eta-main {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .eta-number {
+      font-size: 3.4rem;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .eta-unit {
+      font-size: 1.25rem;
+      font-weight: 600;
+      opacity: 0.92;
+    }
+
+    .eta-sub {
+      margin-top: 8px;
+      font-size: 0.95rem;
+      opacity: 0.92;
+    }
+
+    .eta-reassurance {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+      font-size: 0.88rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    /* 4-Step Progress Tracker */
+    .section-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--aaa-blue);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .stepper {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      position: relative;
+    }
+
+    .step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .step::before {
+      content: "";
+      position: absolute;
+      top: 16px;
+      left: -50%;
+      width: 100%;
+      height: 3px;
+      background: var(--border);
+      z-index: -1;
+    }
+
+    .step:first-child::before {
+      display: none;
+    }
+
+    .step.done::before,
+    .step.active::before {
+      background: var(--aaa-blue);
+    }
+
+    .step-circle {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 3px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      transition: all 0.3s ease;
+    }
+
+    .step.done .step-circle {
+      background: var(--aaa-blue);
+      border-color: var(--aaa-blue);
+      color: #FFFFFF;
+    }
+
+    .step.active .step-circle {
+      background: var(--aaa-blue-light);
+      border-color: var(--aaa-blue);
+      color: var(--aaa-blue);
+      box-shadow: 0 0 0 4px rgba(11, 61, 145, 0.14);
+    }
+
+    .step-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .step.done .step-label,
+    .step.active .step-label {
+      color: var(--text-main);
+    }
+
+    .step.active .step-label {
+      color: var(--aaa-blue);
+      font-weight: 700;
+    }
+
+    .step-time {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Simple Live Map */
+    .map-wrapper {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #EDF2FA;
+    }
+
+    .map-svg {
+      display: block;
+      width: 100%;
+      height: 240px;
+    }
+
+    .map-legend {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .map-chip {
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(4px);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 11px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-main);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    }
+
+    /* Driver Card */
+    .driver-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .driver-avatar {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      background: var(--aaa-blue-light);
+      color: var(--aaa-blue);
+      border: 2px solid var(--aaa-blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .driver-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .driver-name-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .driver-name {
+      font-size: 1.12rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .rating-pill {
+      background: var(--accent-amber-bg);
+      color: var(--accent-amber);
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+
+    .driver-meta {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-top: 3px;
+    }
+
+    .driver-phone {
+      font-size: 0.86rem;
+      color: var(--aaa-blue);
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    /* Action Buttons */
+    .actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .btn {
+      appearance: none;
+      border: none;
+      border-radius: 12px;
+      padding: 13px 16px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform 0.1s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+      font-family: inherit;
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn-primary {
+      background: var(--aaa-blue);
+      color: #FFFFFF;
+      box-shadow: 0 4px 12px rgba(11, 61, 145, 0.22);
+    }
+
+    .btn-primary:hover {
+      background: var(--aaa-blue-dark);
+    }
+
+    .btn-secondary {
+      background: var(--aaa-blue-soft);
+      color: var(--aaa-blue);
+      border: 1px solid #C8D9F6;
+    }
+
+    .btn-secondary:hover {
+      background: var(--aaa-blue-light);
+    }
+
+    .btn-danger-outline {
+      grid-column: 1 / -1;
+      background: #FFFFFF;
+      color: var(--danger);
+      border: 1px solid #F5C2C0;
+    }
+
+    .btn-danger-outline:hover {
+      background: var(--danger-bg);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Demo Controls Footer */
+    .demo-bar {
+      background: #FFFFFF;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .demo-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn-mini {
+      background: var(--bg-page);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-mini:hover {
+      background: var(--aaa-blue-light);
+      border-color: var(--aaa-blue);
+      color: var(--aaa-blue);
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #1F2937;
+      color: #FFFFFF;
+      padding: 12px 18px;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.22);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      z-index: 50;
+      max-width: 90vw;
+      text-align: center;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.48);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 40;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal {
+      background: #FFFFFF;
+      border-radius: var(--radius);
+      max-width: 400px;
+      width: 100%;
+      padding: 22px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .modal h3 {
+      font-size: 1.15rem;
+      color: var(--text-main);
+      margin-bottom: 8px;
+    }
+
+    .modal p {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      margin-bottom: 18px;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      color: #FFFFFF;
+    }
+
+    @media (max-width: 520px) {
+      .actions-grid {
+        grid-template-columns: 1fr;
+      }
+      .eta-number {
+        font-size: 2.8rem;
+      }
+      .step-label {
+        font-size: 0.72rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-badge">AAA</span>
+        <span>Roadside Assistance</span>
+      </div>
+      <div class="request-pill">Request #RSA-1042</div>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- Big ETA Countdown -->
+    <section class="card eta-card" id="etaCard">
+      <div class="eta-header">
+        <div class="live-badge">
+          <span class="pulse-dot" id="pulseDot"></span>
+          <span id="liveStatusText">Live Rescue Tracking</span>
+        </div>
+        <span style="font-size: 0.82rem; opacity: 0.9;" id="serviceTypeLabel">Flat Tire • I-95 South, Mile 42</span>
+      </div>
+
+      <div class="eta-main" id="etaMain">
+        <span class="eta-number" id="etaMinutes">14</span>
+        <span class="eta-unit" id="etaUnit">min away</span>
+      </div>
+
+      <p class="eta-sub" id="etaSub">
+        Estimated arrival around <strong id="arrivalClock">2:24 PM</strong> &bull; <span id="distanceLabel">4.2 miles away</span>
+      </p>
+
+      <div class="eta-reassurance">
+        <span id="reassuranceMsg">Hang tight — stay inside your vehicle with hazard lights on if it's safe.</span>
+        <span id="countdownClock" style="font-variant-numeric: tabular-nums; font-weight: 700;">14:00</span>
+      </div>
+    </section>
+
+    <!-- 4-Step Progress Tracker -->
+    <section class="card">
+      <div class="section-title">
+        <span>Rescue Progress</span>
+        <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);" id="stepSummary">Step 3 of 4</span>
+      </div>
+      <div class="stepper" id="stepper">
+        <div class="step done" data-step="1">
+          <div class="step-circle">✓</div>
+          <div class="step-label">Received</div>
+          <div class="step-time">2:02 PM</div>
+        </div>
+        <div class="step done" data-step="2">
+          <div class="step-circle">✓</div>
+          <div class="step-label">Truck assigned</div>
+          <div class="step-time">2:05 PM</div>
+        </div>
+        <div class="step active" data-step="3">
+          <div class="step-circle">3</div>
+          <div class="step-label">On the way</div>
+          <div class="step-time">2:08 PM</div>
+        </div>
+        <div class="step" data-step="4">
+          <div class="step-circle">4</div>
+          <div class="step-label">Arrived</div>
+          <div class="step-time" id="arrivedTimeLabel">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Simple Map with Moving Truck -->
+    <section class="card">
+      <div class="section-title">
+        <span>Live Map</span>
+        <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Updated just now</span>
+      </div>
+
+      <div class="map-wrapper">
+        <svg class="map-svg" viewBox="0 0 640 240" aria-label="Map showing rescue truck moving toward your location">
+          <!-- Map background blocks -->
+          <rect x="0" y="0" width="640" height="240" fill="#E8EFFA" />
+          <rect x="30" y="22" width="120" height="72" rx="10" fill="#DCE6F5" />
+          <rect x="190" y="20" width="140" height="65" rx="10" fill="#DCE6F5" />
+          <rect x="370" y="24" width="110" height="75" rx="10" fill="#DCE6F5" />
+          <rect x="515" y="20" width="95" height="80" rx="10" fill="#DCE6F5" />
+          <rect x="45" y="145" width="130" height="70" rx="10" fill="#DCE6F5" />
+          <rect x="230" y="150" width="160" height="68" rx="10" fill="#DCE6F5" />
+          <rect x="440" y="145" width="150" height="72" rx="10" fill="#DCE6F5" />
+
+          <!-- Secondary roads -->
+          <line x1="0" y1="120" x2="640" y2="120" stroke="#FFFFFF" stroke-width="14" />
+          <line x1="170" y1="0" x2="170" y2="240" stroke="#FFFFFF" stroke-width="10" />
+          <line x1="350" y1="0" x2="350" y2="240" stroke="#FFFFFF" stroke-width="10" />
+          <line x1="500" y1="0" x2="500" y2="240" stroke="#FFFFFF" stroke-width="10" />
+
+          <!-- Highway / Route Guide (dashed) -->
+          <path id="routePath"
+            d="M 80 180 C 160 180, 165 120, 240 120 L 350 120 C 420 120, 440 72, 540 72"
+            fill="none"
+            stroke="#93B4E8"
+            stroke-width="6"
+            stroke-linecap="round"
+            stroke-dasharray="10 8" />
+
+          <!-- Completed Route Trail -->
+          <path id="routeProgress"
+            d="M 80 180 C 160 180, 165 120, 240 120 L 350 120 C 420 120, 440 72, 540 72"
+            fill="none"
+            stroke="#0B3D91"
+            stroke-width="6"
+            stroke-linecap="round" />
+
+          <!-- Member Location Pin (Destination) -->
+          <g transform="translate(540, 72)">
+            <circle r="18" fill="rgba(11, 61, 145, 0.16)" />
+            <circle r="9" fill="#0B3D91" stroke="#FFFFFF" stroke-width="3" />
+            <rect x="-36" y="-36" width="72" height="22" rx="11" fill="#0B3D91" />
+            <text x="0" y="-21" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="700" font-family="sans-serif">You</text>
+          </g>
+
+          <!-- Moving Rescue Truck -->
+          <g id="truckMarker" transform="translate(80, 180)">
+            <circle r="20" fill="rgba(19, 115, 51, 0.18)" />
+            <rect x="-20" y="-14" width="40" height="28" rx="8" fill="#FFFFFF" stroke="#0B3D91" stroke-width="2.5" />
+            <text x="0" y="5" text-anchor="middle" font-size="16">🚚</text>
+          </g>
+        </svg>
+
+        <div class="map-legend">
+          <span class="map-chip">🚚 Marcus (Flatbed #418)</span>
+          <span class="map-chip">📍 I-95 South, Mile 42</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Driver Details & Actions -->
+    <section class="card">
+      <div class="section-title">
+        <span>Your Rescue Driver</span>
+        <span style="font-size: 0.8rem; font-weight: 600; color: var(--accent-green); background: var(--accent-green-bg); padding: 3px 9px; border-radius: 999px;">Verified AAA Driver</span>
+      </div>
+
+      <div class="driver-row">
+        <div class="driver-avatar" aria-hidden="true">MR</div>
+        <div class="driver-info">
+          <div class="driver-name-row">
+            <span class="driver-name">Marcus Rivera</span>
+            <span class="rating-pill">★ 4.9 (312 rescues)</span>
+          </div>
+          <div class="driver-meta">Flatbed #418 &bull; White Ford F-550</div>
+          <div class="driver-phone">Phone: (555) 014-8392</div>
+        </div>
+      </div>
+
+      <div class="actions-grid">
+        <button class="btn btn-primary" id="callBtn" type="button">
+          📞 Call Driver
+        </button>
+        <button class="btn btn-secondary" id="shareBtn" type="button">
+          🔗 Share Live Link
+        </button>
+        <button class="btn btn-danger-outline" id="cancelBtn" type="button">
+          Cancel Rescue Request
+        </button>
+      </div>
+    </section>
+
+    <!-- Demo-only simulation controls -->
+    <div class="demo-bar">
+      <span><strong>Prototype Demo</strong> (fake data, no backend)</span>
+      <div class="demo-buttons">
+        <button class="btn-mini" id="speedBtn" type="button">Speed: 10x</button>
+        <button class="btn-mini" id="arriveNowBtn" type="button">Jump to Arrived</button>
+        <button class="btn-mini" id="resetBtn" type="button">Reset Demo</button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Call Driver Modal -->
+  <div class="modal-backdrop" id="callModal" role="dialog" aria-modal="true" aria-labelledby="callModalTitle">
+    <div class="modal">
+      <h3 id="callModalTitle">Calling Marcus Rivera...</h3>
+      <p>Connecting to <strong>(555) 014-8392</strong> (Flatbed #418).<br><br><em>Prototype note: In the live app, this opens your phone dialer or masked call bridge.</em></p>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="closeCallModal" type="button">End Demo Call</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cancel Confirmation Modal -->
+  <div class="modal-backdrop" id="cancelModal" role="dialog" aria-modal="true" aria-labelledby="cancelModalTitle">
+    <div class="modal">
+      <h3 id="cancelModalTitle">Cancel your rescue?</h3>
+      <p>Marcus Rivera is already on the way and is <strong id="modalEtaText">14 min</strong> away. Are you sure you want to cancel?</p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="keepWaitingBtn" type="button">Keep Waiting</button>
+        <button class="btn btn-danger" id="confirmCancelBtn" type="button">Yes, Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function () {
+      const TOTAL_SECONDS = 14 * 60; // 14 minutes fake starting ETA
+      let remainingSeconds = TOTAL_SECONDS;
+      let speedMultiplier = 10; // 10x speed by default so user sees live countdown & truck movement
+      let status = "on_the_way"; // "on_the_way" | "arrived" | "cancelled"
+
+      const etaCard = document.getElementById("etaCard");
+      const etaMinutesEl = document.getElementById("etaMinutes");
+      const etaUnitEl = document.getElementById("etaUnit");
+      const etaSubEl = document.getElementById("etaSub");
+      const countdownClockEl = document.getElementById("countdownClock");
+      const distanceLabelEl = document.getElementById("distanceLabel");
+      const liveStatusTextEl = document.getElementById("liveStatusText");
+      const pulseDotEl = document.getElementById("pulseDot");
+      const reassuranceMsgEl = document.getElementById("reassuranceMsg");
+      const stepSummaryEl = document.getElementById("stepSummary");
+      const arrivedTimeLabelEl = document.getElementById("arrivedTimeLabel");
+      const modalEtaTextEl = document.getElementById("modalEtaText");
+
+      const routePath = document.getElementById("routePath");
+      const routeProgress = document.getElementById("routeProgress");
+      const truckMarker = document.getElementById("truckMarker");
+      const totalPathLength = routePath.getTotalLength();
+
+      const callBtn = document.getElementById("callBtn");
+      const shareBtn = document.getElementById("shareBtn");
+      const cancelBtn = document.getElementById("cancelBtn");
+      const speedBtn = document.getElementById("speedBtn");
+      const arriveNowBtn = document.getElementById("arriveNowBtn");
+      const resetBtn = document.getElementById("resetBtn");
+
+      const callModal = document.getElementById("callModal");
+      const closeCallModal = document.getElementById("closeCallModal");
+      const cancelModal = document.getElementById("cancelModal");
+      const keepWaitingBtn = document.getElementById("keepWaitingBtn");
+      const confirmCancelBtn = document.getElementById("confirmCancelBtn");
+      const toastEl = document.getElementById("toast");
+
+      let toastTimer = null;
+      function showToast(message) {
+        toastEl.textContent = message;
+        toastEl.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.remove("show"), 3200);
+      }
+
+      function formatMMSS(sec) {
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+      }
+
+      function setStepperState(currentStep) {
+        const steps = document.querySelectorAll(".step");
+        steps.forEach((el) => {
+          const n = Number(el.dataset.step);
+          const circle = el.querySelector(".step-circle");
+          el.classList.remove("done", "active");
+          if (n < currentStep || (currentStep === 4 && n === 4)) {
+            el.classList.add("done");
+            circle.textContent = "✓";
+          } else if (n === currentStep) {
+            el.classList.add("active");
+            circle.textContent = String(n);
+          } else {
+            circle.textContent = String(n);
+          }
+        });
+        stepSummaryEl.textContent = "Step " + currentStep + " of 4";
+      }
+
+      function updateMap(progressFraction) {
+        const clamped = Math.max(0, Math.min(1, progressFraction));
+        // Start truck slightly along the route (15%) so it looks mid-journey on load
+        const visualFraction = 0.15 + clamped * 0.85;
+        const dist = visualFraction * totalPathLength;
+        const pt = routePath.getPointAtLength(dist);
+        truckMarker.setAttribute("transform", `translate(${pt.x.toFixed(1)}, ${pt.y.toFixed(1)})`);
+
+        routeProgress.style.strokeDasharray = `${totalPathLength}`;
+        routeProgress.style.strokeDashoffset = `${totalPathLength * (1 - visualFraction)}`;
+      }
+
+      function render() {
+        if (status === "cancelled") {
+          etaCard.classList.remove("arrived");
+          etaCard.classList.add("cancelled");
+          pulseDotEl.style.display = "none";
+          liveStatusTextEl.textContent = "Request Cancelled";
+          etaMinutesEl.textContent = "Cancelled";
+          etaUnitEl.textContent = "";
+          etaSubEl.textContent = "Your roadside assistance request #RSA-1042 has been cancelled.";
+          reassuranceMsgEl.textContent = "Need help again? Use Reset Demo below to start over.";
+          countdownClockEl.textContent = "--:--";
+          cancelBtn.disabled = true;
+          callBtn.disabled = true;
+          shareBtn.disabled = true;
+          return;
+        }
+
+        cancelBtn.disabled = false;
+        callBtn.disabled = false;
+        shareBtn.disabled = false;
+        pulseDotEl.style.display = "inline-block";
+
+        if (status === "arrived" || remainingSeconds <= 0) {
+          status = "arrived";
+          remainingSeconds = 0;
+          etaCard.classList.remove("cancelled");
+          etaCard.classList.add("arrived");
+          liveStatusTextEl.textContent = "Driver Has Arrived";
+          etaMinutesEl.textContent = "Here!";
+          etaUnitEl.textContent = "Marcus is at your location";
+          etaSubEl.innerHTML = "Look for <strong>White Ford F-550 (Flatbed #418)</strong> with amber lights.";
+          reassuranceMsgEl.textContent = "Need to reach Marcus? Tap Call Driver below.";
+          countdownClockEl.textContent = "00:00";
+          arrivedTimeLabelEl.textContent = "Now";
+          setStepperState(4);
+          updateMap(1);
+          return;
+        }
+
+        etaCard.classList.remove("arrived", "cancelled");
+        liveStatusTextEl.textContent = "Live Rescue Tracking";
+        const mins = Math.max(1, Math.ceil(remainingSeconds / 60));
+        etaMinutesEl.textContent = String(mins);
+        etaUnitEl.textContent = mins === 1 ? "min away" : "min away";
+        modalEtaTextEl.textContent = mins + " min";
+
+        const miles = Math.max(0.1, (remainingSeconds / TOTAL_SECONDS) * 4.2).toFixed(1);
+        etaSubEl.innerHTML = `Estimated arrival around <strong id="arrivalClock">2:24 PM</strong> &bull; <span>${miles} miles away</span>`;
+        reassuranceMsgEl.textContent = "Hang tight — stay inside your vehicle with hazard lights on if it's safe.";
+        countdownClockEl.textContent = formatMMSS(remainingSeconds);
+        arrivedTimeLabelEl.textContent = "—";
+
+        setStepperState(3);
+        const progress = 1 - remainingSeconds / TOTAL_SECONDS;
+        updateMap(progress);
+      }
+
+      // Countdown tick
+      setInterval(() => {
+        if (status !== "on_the_way") return;
+        remainingSeconds = Math.max(0, remainingSeconds - speedMultiplier);
+        if (remainingSeconds === 0) {
+          status = "arrived";
+          showToast("Marcus Rivera has arrived at your location!");
+        }
+        render();
+      }, 1000);
+
+      // Button handlers
+      callBtn.addEventListener("click", () => {
+        callModal.classList.add("open");
+      });
+
+      closeCallModal.addEventListener("click", () => {
+        callModal.classList.remove("open");
+      });
+
+      shareBtn.addEventListener("click", () => {
+        const fakeLink = "https://aaa-demo.example/track/RSA-1042-live";
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(fakeLink).catch(() => {});
+        }
+        showToast("Live tracking link copied! Share it with family.");
+      });
+
+      cancelBtn.addEventListener("click", () => {
+        cancelModal.classList.add("open");
+      });
+
+      keepWaitingBtn.addEventListener("click", () => {
+        cancelModal.classList.remove("open");
+      });
+
+      confirmCancelBtn.addEventListener("click", () => {
+        cancelModal.classList.remove("open");
+        status = "cancelled";
+        render();
+        showToast("Rescue request cancelled.");
+      });
+
+      // Demo controls
+      speedBtn.addEventListener("click", () => {
+        speedMultiplier = speedMultiplier === 10 ? 1 : 10;
+        speedBtn.textContent = "Speed: " + speedMultiplier + "x";
+      });
+
+      arriveNowBtn.addEventListener("click", () => {
+        remainingSeconds = 0;
+        status = "arrived";
+        render();
+        showToast("Marcus Rivera has arrived!");
+      });
+
+      resetBtn.addEventListener("click", () => {
+        remainingSeconds = TOTAL_SECONDS;
+        status = "on_the_way";
+        render();
+        showToast("Demo reset to 14 min ETA.");
+      });
+
+      // Close modals on backdrop click
+      [callModal, cancelModal].forEach((modal) => {
+        modal.addEventListener("click", (e) => {
+          if (e.target === modal) modal.classList.remove("open");
+        });
+      });
+
+      render();
+    })();
+  </script>
+</body>
+</html>

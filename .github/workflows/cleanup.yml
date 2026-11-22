@@ -1,0 +1,69 @@
+name: Sandbox cleanup
+
+on:
+  pull_request:
+    types: [closed]          # tear down as soon as a PR is merged or closed
+  schedule:
+    - cron: "17 */6 * * *"   # safety net: sweep stale sandboxes every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: read
+
+env:
+  MAX_AGE_HOURS: 48       # PR sandboxes
+  DEV_MAX_AGE_HOURS: 24   # developer sandboxes from scripts/sandbox.sh
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: This repo's sandbox label
+        run: echo "REPO_SLUG=$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' '-')" >> "$GITHUB_ENV"
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.CI_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/get-gke-credentials@v3
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GCP_REGION }}
+
+      - name: Delete this PR's sandbox
+        if: github.event_name == 'pull_request'
+        run: kubectl delete namespace "$REPO_SLUG-pr-${{ github.event.pull_request.number }}" --ignore-not-found --wait=false
+
+      - name: Sweep closed or stale sandboxes
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          now=$(date -u +%s)
+          kubectl get ns -l "sandbox=pr,repo=$REPO_SLUG" \
+            -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.pr} {.metadata.annotations.sandbox/created-at}{"\n"}{end}' |
+          while read -r ns pr created; do
+            [ -z "$ns" ] && continue
+            state=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || echo UNKNOWN)
+            age_h=$(( (now - $(date -u -d "$created" +%s)) / 3600 ))
+            if [ "$state" != "OPEN" ] || [ "$age_h" -ge "$MAX_AGE_HOURS" ]; then
+              echo "deleting $ns (PR #$pr state=$state age=${age_h}h)"
+              kubectl delete namespace "$ns" --wait=false
+            fi
+          done
+
+      - name: Sweep developer sandboxes left running
+        if: github.event_name != 'pull_request'
+        run: |
+          now=$(date -u +%s)
+          kubectl get ns -l "sandbox=dev,repo=$REPO_SLUG" \
+            -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.annotations.sandbox/created-at}{"\n"}{end}' |
+          while read -r ns created; do
+            [ -z "$ns" ] && continue
+            age_h=$(( (now - $(date -u -d "$created" +%s)) / 3600 ))
+            if [ "$age_h" -ge "$DEV_MAX_AGE_HOURS" ]; then
+              echo "deleting $ns (developer sandbox, age=${age_h}h)"
+              kubectl delete namespace "$ns" --wait=false
+            fi
+          done

@@ -1,0 +1,45 @@
+# The demo's "production" space, rendered by scripts/prod.sh: NS, REPO_SLUG.
+# It shares the pr-sandboxes cluster to keep the demo cheap; a real setup uses its own cluster.
+# Not labelled "sandbox", so the sandbox cleanup never touches it. Remove it: scripts/prod.sh down
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NS}
+  labels:
+    environment: production
+    repo: ${REPO_SLUG}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: prod-quota
+  namespace: ${NS}
+spec:
+  hard:
+    requests.cpu: "6"
+    requests.memory: 12Gi
+    pods: "16"
+    services.loadbalancers: "0"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: prod-defaults
+  namespace: ${NS}
+spec:
+  limits:
+    - type: Container
+      defaultRequest: { cpu: 250m, memory: 512Mi }
+      default: { cpu: 500m, memory: 1Gi }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolate-namespace
+  namespace: ${NS}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}

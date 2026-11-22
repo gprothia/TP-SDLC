@@ -1,0 +1,242 @@
+name: PR checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  # PRs opened by a workflow (the SRE agent's root-cause PR) don't trigger pull_request
+  # events, so the release workflow starts the same checks with this, on the PR's branch.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to check (run on that PR's branch)
+        required: true
+
+# One sandbox run per PR at a time; a new push cancels the old run.
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write        # OIDC -> Workload Identity Federation (no JSON keys)
+  pull-requests: write   # sticky comments
+  checks: write          # "Spec acceptance tests" check with every test listed
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}                  # e.g. us-west1
+  CLUSTER: ${{ vars.GKE_CLUSTER }}                # shared Autopilot cluster, e.g. pr-sandboxes
+  AR: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPO }}
+  WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}          # projects/NUM/locations/global/workloadIdentityPools/github/providers/github
+  CI_SA: ${{ vars.CI_SERVICE_ACCOUNT }}           # gh-pr-sandbox@PROJECT.iam.gserviceaccount.com
+  SANDBOX_KIND: pr
+  PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+  SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  BASE_REF: ${{ github.base_ref || 'main' }}
+
+jobs:
+  # 1) Deterministic gate: every approved acceptance criterion has a test.
+  traceability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+      - name: Specs follow the format rules
+        run: python scripts/check_spec.py
+      - name: Every approved criterion has a test
+        run: python scripts/check_traceability.py
+      - name: Prototypes are never built, deployed or imported
+        run: |
+          if grep -rn "prototypes/" services tests deploy; then
+            echo "::error::services/, tests/ and deploy/ must not use anything under prototypes/ (AGENTS.md 1b)"
+            exit 1
+          fi
+
+  # 1b) Code style and safety checks (standards/code-style.md). Blocks the merge on failure.
+  style:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v5
+        with: { node-version: "22" }
+      - name: Python (ruff)
+        run: |
+          pip install -q ruff==0.16.9
+          ruff format --check .
+          ruff check .
+      - name: TypeScript tests (eslint)
+        run: cd tests/ui && npm ci --no-audit --no-fund && npx eslint .
+
+  # 2) Advisory: Gemini compares changed specs with changed tests and comments on the PR.
+  gemini-spec-review:
+    # Skip on fork PRs (no OIDC) and until Google Cloud is connected (repo variables set).
+    if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.GCP_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.CI_SA }}
+      - uses: actions/setup-node@v5
+        with: { node-version: "22" }
+      - name: Bundle spec + test diff as context
+        run: |
+          base="origin/$BASE_REF"
+          {
+            echo "# Changed specs"; git diff "$base"...HEAD -- specs/
+            echo; echo "# Full text of changed specs"
+            for f in $(git diff --name-only "$base"...HEAD -- 'specs/*.md'); do
+              [ -f "$f" ] && { echo "## $f"; cat "$f"; }
+            done
+            echo; echo "# Changed tests"; git diff "$base"...HEAD -- tests/
+          } > context.md
+          echo "bytes=$(wc -c < context.md)"
+      - name: Ask Gemini (Vertex AI) for a spec-vs-test review
+        env:
+          GOOGLE_GENAI_USE_VERTEXAI: "true"
+          GOOGLE_CLOUD_PROJECT: ${{ env.PROJECT_ID }}
+          GOOGLE_CLOUD_LOCATION: global
+          GEMINI_CLI_TRUST_WORKSPACE: "true"   # headless run in CI: trust the checked-out repo
+        run: |
+          # Headless Gemini CLI. Context is piped in, so no file or shell tools are needed.
+          # Occasionally the CLI returns an empty answer: retry once, then say so instead of failing.
+          for attempt in 1 2; do
+            npx -y @google/gemini-cli@latest \
+              -p "$(cat .github/gemini/spec-review-prompt.md)" < context.md > review.md || true
+            [ -s review.md ] && break
+            echo "Gemini returned an empty review (attempt $attempt)"; sleep 10
+          done
+          [ -s review.md ] || echo "_Gemini returned no review this time. Re-run this job to try again._" > review.md
+      - uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: gemini-spec-review
+          number: ${{ env.PR_NUMBER }}
+          path: review.md
+
+  # 3) Build app + test-runner images tagged with the PR head SHA.
+  build:
+    if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.GCP_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.CI_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+      - name: Build and push
+        run: |
+          # Adjust the build contexts to where your services live.
+          docker build -t "$AR/api:$SHA"   services/api
+          docker build -t "$AR/web:$SHA"   services/web
+          docker build -t "$AR/tests:$SHA" tests
+          docker push "$AR/api:$SHA"
+          docker push "$AR/web:$SHA"
+          docker push "$AR/tests:$SHA"
+
+  # 4) Deploy into an isolated namespace on GKE Autopilot and run both suites in-cluster.
+  sandbox-test:
+    needs: [traceability, style, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.CI_SA }}
+      - uses: google-github-actions/get-gke-credentials@v3
+        with:
+          cluster_name: ${{ env.CLUSTER }}
+          location: ${{ env.REGION }}
+
+      - name: Name this PR's sandbox (per repo, so repos sharing the cluster never collide)
+        run: |
+          slug=$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' '-')
+          { echo "REPO_SLUG=$slug"; echo "NS=$slug-pr-$PR_NUMBER"; } >> "$GITHUB_ENV"
+
+      - name: Create / refresh sandbox namespace
+        run: |
+          CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ); export CREATED_AT
+          envsubst < deploy/sandbox/namespace.yaml | kubectl apply -f -
+          # Fresh state per push: drop the previous run's test pod if it exists.
+          kubectl -n "$NS" delete pod test-runner --ignore-not-found --wait=true
+
+      - name: Deploy app at this SHA
+        run: |
+          # Throwaway overlay that pins namespace + image tags for this PR.
+          mkdir -p deploy/overlay-pr
+          cat > deploy/overlay-pr/kustomization.yaml <<EOF
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          namespace: ${NS}
+          resources: ["../app"]
+          images:
+            - { name: api, newName: ${AR}/api, newTag: "${SHA}" }
+            - { name: web, newName: ${AR}/web, newTag: "${SHA}" }
+          EOF
+          kubectl apply -k deploy/overlay-pr
+          # Autopilot may provision nodes on first use; allow a few minutes.
+          kubectl -n "$NS" rollout status deploy/api --timeout=10m
+          kubectl -n "$NS" rollout status deploy/web --timeout=10m
+
+      - name: Run API + UI suites in the sandbox
+        run: |
+          export TEST_IMAGE="$AR/tests:$SHA"
+          envsubst < deploy/sandbox/test-runner.yaml | kubectl apply -f -
+          # Wait for the pod to start (not "Ready": the tests container exits when it's done).
+          kubectl -n "$NS" wait pod/test-runner --for=jsonpath='{.status.phase}'=Running --timeout=10m || true
+          # Stream logs until the "tests" container exits.
+          kubectl -n "$NS" logs -f pod/test-runner -c tests || true
+          for _ in $(seq 1 60); do
+            code=$(kubectl -n "$NS" get pod test-runner \
+              -o jsonpath='{.status.containerStatuses[?(@.name=="tests")].state.terminated.exitCode}')
+            [ -n "$code" ] && break; sleep 5
+          done
+          echo "TEST_EXIT=${code:-1}" >> "$GITHUB_ENV"
+
+      - name: Copy reports out of the sandbox
+        if: always()
+        run: |
+          mkdir -p reports
+          kubectl -n "$NS" cp test-runner:/reports ./reports -c results || echo "no reports"
+          { kubectl -n "$NS" get pods -o wide; kubectl -n "$NS" get events --sort-by=.metadata.creationTimestamp; } > reports/k8s-state.txt || true
+
+      - name: Write the PR check summary (same table as the pre-PR evidence)
+        if: always()
+        env:
+          SANDBOX_LABEL: PR check
+        run: |
+          python3 scripts/sandbox_report.py reports "$NS" "$SHA" "${TEST_EXIT:-1}" "$SHA" "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post the PR check result on the PR (updated in place on every push)
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: gke-pr-check
+          number: ${{ env.PR_NUMBER }}
+          path: reports/summary.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sandbox-reports-${{ env.PR_NUMBER }}-${{ env.SHA }}
+          path: reports/
+          retention-days: 14
+
+      - uses: mikepenz/action-junit-report@v5
+        if: always()
+        with:
+          report_paths: reports/*-junit.xml
+          check_name: Spec acceptance tests
+          include_passed: true
+
+      - name: Fail if tests failed
+        run: test "$TEST_EXIT" = "0"

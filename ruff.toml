@@ -1,0 +1,13 @@
+# Python style and safety checks (standards/code-style.md STY-1).
+line-length = 120
+target-version = "py312"
+
+[lint]
+# E/W style, F real bugs, I import order, B likely bugs, S security, UP modern syntax
+select = ["E", "W", "F", "I", "B", "S", "UP"]
+ignore = [
+  "B008",   # FastAPI's Depends()/Header() in defaults is the framework's documented style
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["S101"]   # assert is how pytest tests check things

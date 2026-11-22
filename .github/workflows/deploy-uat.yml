@@ -1,0 +1,187 @@
+name: Deploy to UAT (Cloud Run)
+
+# Every merge to main deploys that exact commit to UAT. PRs only reach main after review
+# (protect main: Settings -> Branches). Can also be re-run by hand from the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deployment at a time, in order. Never cancel a deployment halfway.
+concurrency:
+  group: deploy-uat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write   # OIDC -> Workload Identity Federation (no JSON keys)
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  AR: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPO }}
+  WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+  CI_SA: ${{ vars.CI_SERVICE_ACCOUNT }}
+  API_SERVICE: aaademo3-uat-api
+  WEB_SERVICE: aaademo3-uat-web
+  API_SA: uat-api@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+  WEB_SA: uat-web@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+  SHA: ${{ github.sha }}
+
+jobs:
+  deploy:
+    name: Build, deploy, smoke-test UAT
+    # Waits until Google Cloud is connected (repository variables set).
+    if: vars.GCP_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: uat                      # add required reviewers here for a manual gate
+      url: ${{ steps.urls.outputs.web }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.CI_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Build and push images for this commit
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          for svc in api web; do
+            docker build -t "$AR/$svc:$SHA" "services/$svc"
+            docker push "$AR/$svc:$SHA"
+          done
+
+      - name: Remember the revisions currently serving (for rollback)
+        id: before
+        run: |
+          prev() { gcloud run services describe "$1" --region "$REGION" \
+                     --format='value(status.traffic[0].revisionName)' 2>/dev/null || true; }
+          echo "api=$(prev "$API_SERVICE")" >> "$GITHUB_OUTPUT"
+          echo "web=$(prev "$WEB_SERVICE")" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy API (private; seeded demo data; test hooks OFF)
+        run: |
+          # In-memory storage: keep a single instance so every request sees the same data.
+          gcloud run deploy "$API_SERVICE" --image "$AR/api:$SHA" --region "$REGION" \
+            --service-account "$API_SA" --no-allow-unauthenticated --port 8080 \
+            --min-instances 0 --max-instances 1 \
+            --set-env-vars "SEED_TEST_DATA=true,ENABLE_TEST_HOOKS=false" \
+            --labels "env=uat,app=aaademo3,commit=${SHA:0:7}" --quiet
+          api_url=$(gcloud run services describe "$API_SERVICE" --region "$REGION" --format='value(status.url)')
+          echo "API_URL=$api_url" >> "$GITHUB_ENV"
+          # Who may call the private API: the website, and this pipeline (for smoke tests).
+          for member in "serviceAccount:$WEB_SA" "serviceAccount:$CI_SA"; do
+            gcloud run services add-iam-policy-binding "$API_SERVICE" --region "$REGION" \
+              --member "$member" --role roles/run.invoker --quiet >/dev/null
+          done
+
+      - name: Deploy website (public UAT URL)
+        run: |
+          gcloud run deploy "$WEB_SERVICE" --image "$AR/web:$SHA" --region "$REGION" \
+            --service-account "$WEB_SA" --allow-unauthenticated --port 3000 \
+            --min-instances 0 --max-instances 2 \
+            --set-env-vars "API_URL=$API_URL,API_AUDIENCE=$API_URL" \
+            --labels "env=uat,app=aaademo3,commit=${SHA:0:7}" --quiet
+
+      - name: UAT URLs
+        id: urls
+        run: |
+          web=$(gcloud run services describe "$WEB_SERVICE" --region "$REGION" --format='value(status.url)')
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "WEB_URL=$web" >> "$GITHUB_ENV"
+
+      - name: Wait until the website can reach the private API
+        run: |
+          # A newly granted permission (website -> API) can take a few minutes to take effect.
+          # Wait for it through the website's own API pass-through, instead of failing the tests.
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$WEB_URL/signin" || echo 000)
+            # /signin calls nothing; check the website can reach the API through sign-in itself
+            [ "$code" = 200 ] && code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -d user=alice "$WEB_URL/signin" || echo 000)
+            [ "$code" = 303 ] && code=200
+            echo "attempt $i: website -> API returned $code"
+            [ "$code" = 200 ] && exit 0
+            sleep 10
+          done
+          echo "::error::The website still can't reach the API after 5 minutes"; exit 1
+
+      - name: Identity token for the private API
+        id: token
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.CI_SA }}
+          token_format: id_token
+          id_token_audience: ${{ env.API_URL }}
+          id_token_include_email: true
+
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v5
+        with: { node-version: "22" }
+
+      - name: Smoke-test UAT (every test except those needing test hooks)
+        id: smoke
+        env:
+          API_BASE_URL: ${{ env.API_URL }}
+          WEB_BASE_URL: ${{ env.WEB_URL }}
+          API_IAM_TOKEN: ${{ steps.token.outputs.id_token }}
+          REPORT_DIR: ${{ github.workspace }}/reports
+          CI: "true"
+        run: |
+          mkdir -p reports
+          pip install -q -r tests/requirements.txt
+          set +e
+          pytest tests/api -q -m "not needs_test_hooks" --junitxml=reports/api-junit.xml
+          api=$?
+          (cd tests/ui && npm ci --no-audit --no-fund && npx playwright install --with-deps chromium \
+            && npx playwright test --grep-invert @needs-test-hooks)
+          ui=$?
+          set -e
+          echo "api=$api ui=$ui"
+          test "$api" = 0 && test "$ui" = 0
+
+      - name: Roll back to the previous revisions
+        if: failure() && steps.before.outcome == 'success'
+        run: |
+          back() {
+            if [ -n "$2" ]; then
+              echo "Rolling $1 back to $2"
+              gcloud run services update-traffic "$1" --region "$REGION" --to-revisions "$2=100" --quiet
+            else
+              echo "No previous revision of $1 (first deployment); leaving it as is."
+            fi
+          }
+          back "$API_SERVICE" "${{ steps.before.outputs.api }}"
+          back "$WEB_SERVICE" "${{ steps.before.outputs.web }}"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uat-smoke-${{ github.sha }}
+          path: reports/
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### UAT deployment: ${{ job.status }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | \`${SHA:0:7}\` |"
+            echo "| Website | ${WEB_URL:-n/a} |"
+            echo "| API (private) | ${API_URL:-n/a} |"
+            echo "| Smoke tests | ${{ steps.smoke.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  not-connected:
+    if: vars.GCP_PROJECT_ID == ''
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::notice::UAT deploy skipped - Google Cloud isn't connected yet (see README, 'Google Cloud setup')."

@@ -1,0 +1,364 @@
+name: Release (canary)
+
+# Replaces change-board sign-off for standard changes (standards/slo.md SLO-2..SLO-5):
+#   1. classify   is the merged PR a standard change? (scripts/classify_change.py)
+#   2. approve    only if NOT standard: waits for a reviewer in the "production" environment
+#   3. canary     1 copy of the new version next to 9 stable ones on GKE (about 10% of traffic),
+#                 synthetic member traffic, judged against the spec's SLO (scripts/check_slo.py)
+#                 -> within budget: promote to all copies   -> over budget: roll back
+#   4. sre-agent  only after a rollback: Gemini writes the root cause and a proposed fix,
+#                 and the workflow opens it as a PR (tested by PR checks like any other)
+# Evidence: this run's summary, a comment on the merged PR, and the release-evidence artifact.
+
+on:
+  workflow_run:
+    workflows: ["Deploy to UAT (Cloud Run)"]   # UAT first; no canary for a build that failed UAT
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: Seconds of synthetic traffic to measure the canary
+        default: "180"
+
+concurrency:
+  group: release-${{ github.repository }}   # one release at a time, never cancelled half-way
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # SRE agent pushes its branch
+  pull-requests: write   # comments; SRE agent opens its PR
+  issues: write          # labels
+  actions: write         # start PR checks on the SRE agent's PR
+  checks: read
+  id-token: write        # OIDC -> Workload Identity Federation (no JSON keys)
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  CLUSTER: ${{ vars.GKE_CLUSTER }}
+  AR_REPO: ${{ vars.AR_REPO }}
+  AR: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPO }}
+  WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+  CI_SA: ${{ vars.CI_SERVICE_ACCOUNT }}
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  DURATION: ${{ inputs.duration || '180' }}
+  GH_TOKEN: ${{ github.token }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  # 1) Standard change or not: mechanical rules, reasons printed.
+  classify:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      standard: ${{ steps.classify.outputs.standard }}
+      pr: ${{ steps.pr.outputs.number }}
+      p95: ${{ steps.slo.outputs.p95 }}
+      err: ${{ steps.slo.outputs.err }}
+    steps:
+      - uses: actions/checkout@v5
+        with: { ref: "${{ env.SHA }}" }
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+
+      - name: Find the pull request behind this commit
+        id: pr
+        run: |
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq '.[0].number // empty')
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+          : > changed.txt; tests=""; labels=""; title="(no pull request)"
+          if [ -n "$pr" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$pr/files" --paginate --jq '.[].filename' > changed.txt
+            head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .head.sha)
+            title=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .title)
+            labels=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq '[.labels[].name] | join(",")')
+            tests=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head/check-runs?check_name=Spec%20acceptance%20tests" \
+                      --jq '.check_runs | sort_by(.completed_at) | last | .conclusion // ""')
+          fi
+          { echo "tests=$tests"; echo "labels=$labels"; echo "title=$title"; } >> "$GITHUB_OUTPUT"
+          echo "PR #${pr:-none}: $title"; echo "Changed files:"; sed 's/^/  /' changed.txt
+
+      - name: Specs pass the checker
+        id: spec
+        run: |
+          if python scripts/check_spec.py; then echo "rc=0" >> "$GITHUB_OUTPUT"; else echo "rc=1" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Standard change?
+        id: classify
+        run: |
+          python scripts/classify_change.py --files changed.txt --pr "${{ steps.pr.outputs.number }}" \
+            --tests "${{ steps.pr.outputs.tests }}" --spec-check "${{ steps.spec.outputs.rc }}" \
+            --labels "${{ steps.pr.outputs.labels }}" > classify.json
+          standard=$(python -c 'import json; print(str(json.load(open("classify.json"))["standard"]).lower())')
+          echo "standard=$standard" >> "$GITHUB_OUTPUT"
+          python -c 'import json; [print(r) for r in json.load(open("classify.json"))["reasons"]]'
+
+      - name: SLO budget (strictest SLO of the specs this PR touches)
+        id: slo
+        run: |
+          python scripts/check_slo.py target $(grep '^specs/.*\.md$' changed.txt || true) > slo.json
+          cat slo.json
+          echo "p95=$(python -c 'import json; print(json.load(open("slo.json"))["p95_latency_ms"])')" >> "$GITHUB_OUTPUT"
+          echo "err=$(python -c 'import json; print(json.load(open("slo.json"))["error_rate_pct"])')" >> "$GITHUB_OUTPUT"
+
+      - name: Write the classification
+        run: |
+          python - <<'EOF' > classification.md
+          import json
+          c = json.load(open("classify.json")); s = json.load(open("slo.json"))
+          kind = "Standard change: canary, no approval needed" if c["standard"] else \
+                 "Not a standard change: a reviewer must approve in the production environment"
+          print(f"**{kind}**\n")
+          print("\n".join(f"- {r}" for r in c["reasons"]))
+          print(f"\nSLO budget: p95 ≤ **{s['p95_latency_ms']:g} ms**, errors ≤ **{s['error_rate_pct']:g}%** "
+                f"(from {', '.join(s['from'])}).")
+          EOF
+          { echo "## 1. Classification"; cat classification.md; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Approval gate is set up (only for non-standard changes)
+        if: steps.classify.outputs.standard != 'true'
+        run: |
+          n=$(gh api "repos/$GITHUB_REPOSITORY/environments/production" \
+                --jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' 2>/dev/null || echo 0)
+          if [ "${n:-0}" = "0" ]; then
+            echo "::error::Not a standard change, but the 'production' environment has no required reviewers. Add them: Settings → Environments → production (standards/slo.md SLO-5)."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: classification
+          path: |
+            classify.json
+            slo.json
+            classification.md
+            changed.txt
+
+  # 2) Not standard: a named person approves (GitHub records who, when and the comment).
+  approve:
+    needs: classify
+    if: needs.classify.outputs.standard != 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: echo "Approved for release by a reviewer of the production environment."
+
+  # 3) Canary on GKE, judged against the SLO.
+  canary:
+    needs: [classify, approve]
+    if: >-
+      always() && needs.classify.result == 'success' &&
+      (needs.approve.result == 'success' || needs.approve.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      verdict: ${{ steps.judge.outputs.verdict }}
+    steps:
+      - uses: actions/checkout@v5
+        with: { ref: "${{ env.SHA }}" }
+      - uses: actions/download-artifact@v4
+        with: { name: classification, path: evidence }
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.CI_SA }}
+      - uses: google-github-actions/get-gke-credentials@v3
+        with:
+          cluster_name: ${{ env.CLUSTER }}
+          location: ${{ env.REGION }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: This commit's API image is in Artifact Registry
+        run: |
+          for _ in $(seq 1 40); do
+            gcloud artifacts docker images describe "$AR/api:$SHA" >/dev/null 2>&1 && { echo "found $AR/api:${SHA:0:7}"; exit 0; }
+            sleep 15
+          done
+          echo "::error::No image $AR/api:$SHA (built by the UAT deploy)"; exit 1
+
+      - name: Start the canary (1 copy of this commit next to 9 stable copies)
+        run: |
+          scripts/prod.sh canary "$SHA"
+          scripts/prod.sh status
+
+      - name: Measure with synthetic member traffic
+        run: scripts/prod.sh measure "$DURATION"
+
+      - name: Judge the canary against the SLO
+        id: judge
+        run: |
+          if python scripts/check_slo.py judge reports/prod/load.json \
+               --p95 "${{ needs.classify.outputs.p95 }}" --err "${{ needs.classify.outputs.err }}" \
+               --md reports/prod/judge.md; then
+            echo "verdict=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "verdict=fail" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Within budget → promote
+        if: steps.judge.outputs.verdict == 'pass'
+        run: scripts/prod.sh promote "$SHA" && scripts/prod.sh status
+
+      - name: Over budget → roll back
+        if: steps.judge.outputs.verdict == 'fail'
+        run: scripts/prod.sh logs && scripts/prod.sh rollback && scripts/prod.sh status
+
+      - name: Something broke half-way → roll back (safety net)
+        if: failure()
+        run: scripts/prod.sh rollback || true
+
+      - name: Write the release record
+        if: always()
+        run: |
+          short=${SHA:0:7}
+          case "${{ steps.judge.outputs.verdict }}" in
+            pass) head="✅ Released by SLO evidence: \`$short\` promoted to all copies" ;;
+            fail) head="❌ Rolled back: \`$short\` broke its SLO budget; the SRE agent is opening a root-cause PR" ;;
+            *)    head="⚠️ Release of \`$short\` did not complete; the canary was removed" ;;
+          esac
+          {
+            echo "<!-- release-record -->"
+            echo "### $head"
+            echo
+            echo "Production space \`$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')-prod\` on GKE \`$CLUSTER\` · canary = 1 of 10 copies (about 10% of traffic) · ${DURATION}s of synthetic member traffic · [release run]($RUN_URL)"
+            echo
+            echo "#### Classification"
+            cat evidence/classification.md
+            echo
+            echo "#### Canary vs SLO"
+            cat reports/prod/judge.md 2>/dev/null || echo "_No measurement._"
+            echo
+            echo "_No change-board meeting: the decision and its evidence are recorded here (standards/slo.md)._"
+          } > reports/prod/record.md
+          { echo "## 2. Canary"; tail -n +2 reports/prod/record.md; } >> "$GITHUB_STEP_SUMMARY"
+          cp evidence/* reports/prod/ 2>/dev/null || true
+
+      - name: Post the release record on the merged PR
+        if: always() && needs.classify.outputs.pr != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: release-record
+          number: ${{ needs.classify.outputs.pr }}
+          path: reports/prod/record.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-evidence
+          path: reports/prod/
+          retention-days: 30
+
+  # 4) After a rollback: root cause + proposed fix, as a PR.
+  sre-agent:
+    needs: [classify, canary]
+    if: always() && needs.canary.outputs.verdict == 'fail'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with: { ref: "${{ env.SHA }}", fetch-depth: 0 }
+      - uses: actions/download-artifact@v4
+        with: { name: release-evidence, path: evidence }
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.CI_SA }}
+      - uses: actions/setup-node@v5
+        with: { node-version: "22" }
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+
+      - name: Gather the evidence for the agent
+        env:
+          PR: ${{ needs.classify.outputs.pr }}
+        run: |
+          short=${SHA:0:7}
+          echo "INCIDENT=incidents/INC-$(date -u +%Y%m%d)-$short.md" >> "$GITHUB_ENV"
+          mkdir -p .tmp
+          {
+            echo "# Release that was rolled back"
+            echo "Commit: $SHA"
+            if [ -n "$PR" ]; then
+              echo "Pull request: #$PR $(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .title)"
+              echo; echo "## PR description"; gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '.body // ""'
+              echo; echo "## Code change (PR diff)"; echo '```diff'; gh pr diff "$PR" -R "$GITHUB_REPOSITORY" | head -c 60000; echo '```'
+            else
+              echo; echo "## Code change"; echo '```diff'; git show "$SHA" | head -c 60000; echo '```'
+            fi
+            echo; echo "## Canary measurement vs SLO"; cat evidence/judge.md
+            echo; echo "## Raw measurement (per track and endpoint)"; echo '```json'; cat evidence/load.json; echo '```'
+            echo; echo "## Canary logs (last lines)"; echo '```'; tail -n 80 evidence/canary.log 2>/dev/null; echo '```'
+          } > .tmp/context.md
+          wc -c .tmp/context.md
+
+      - name: SRE agent (Gemini) investigates and proposes a fix
+        env:
+          GOOGLE_GENAI_USE_VERTEXAI: "true"
+          GOOGLE_CLOUD_PROJECT: ${{ env.PROJECT_ID }}
+          GOOGLE_CLOUD_LOCATION: global
+          GEMINI_CLI_TRUST_WORKSPACE: "true"
+        run: |
+          prompt="$(sed "s#{{INCIDENT}}#$INCIDENT#g" .github/sre/root-cause-prompt.md)"
+          for attempt in 1 2; do
+            npx -y @google/gemini-cli@latest --yolo -p "$prompt" < .tmp/context.md > .tmp/agent.log 2>&1 || true
+            [ -s "$INCIDENT" ] && break
+            echo "No incident report yet (attempt $attempt)"; tail -20 .tmp/agent.log; sleep 10
+          done
+          tail -40 .tmp/agent.log
+
+      - name: Keep the agent inside its lane
+        run: |
+          # The agent may only change application code and add the incident report.
+          # Tests, specs, standards, deployment, CI, tools and the partner simulation stay as they are.
+          git checkout -- tests specs standards deploy .github tools scripts services/api/driver_directory.py
+          git clean -fdq -- tests specs standards deploy .github tools scripts
+          if [ ! -s "$INCIDENT" ]; then
+            mkdir -p incidents
+            { echo "# Incident: canary of ${SHA:0:7} rolled back"; echo
+              echo "_The SRE agent could not complete an analysis; evidence below for a person to investigate._"; echo
+              cat evidence/judge.md; } > "$INCIDENT"
+          fi
+          pip install -q ruff==0.16.9
+          ruff format services >/dev/null && ruff check --fix services >/dev/null || true
+          git status --short
+
+      - name: Open the root-cause PR
+        env:
+          PR: ${{ needs.classify.outputs.pr }}
+        run: |
+          short=${SHA:0:7}
+          branch="sre/rollback-$short-${{ github.run_id }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add -A services "$INCIDENT"
+          git commit -q -m "SRE: root cause and fix for the rolled-back canary of $short" \
+                        -m "Opened by the SRE agent after release run $RUN_URL"
+          git push -q origin "$branch"
+
+          summary=$(grep -m1 '^# ' "$INCIDENT" | sed 's/^# *//')
+          {
+            echo "**Automatic rollback.** The canary of \`$short\`${PR:+ (from #$PR)} broke its SLO budget and was removed; production is on the previous version. [Release run]($RUN_URL)"
+            echo
+            echo "This PR is the SRE agent's root-cause analysis (\`$INCIDENT\`) and proposed fix. It is tested by PR checks and reviewed like any change; merging releases it through the canary again."
+            echo
+            echo "---"
+            echo
+            cat "$INCIDENT"
+            echo
+            echo "---"
+            echo "_Opened automatically by the SRE agent (Gemini on Vertex AI) from the release workflow._"
+          } > .tmp/pr.md
+          for l in incident sre-agent; do gh label create "$l" -R "$GITHUB_REPOSITORY" --color B60205 2>/dev/null || true; done
+          num=$(gh api "repos/$GITHUB_REPOSITORY/pulls" -f title="Rollback of $short: ${summary:-canary over SLO budget}" \
+                  -f head="$branch" -f base=main -F body=@.tmp/pr.md --jq .number)
+          gh api "repos/$GITHUB_REPOSITORY/issues/$num/labels" -f "labels[]=incident" -f "labels[]=sre-agent" --silent
+          echo "Root-cause PR: #$num"
+          # PRs opened by a workflow don't trigger pull_request events; start the checks explicitly.
+          gh workflow run pr-checks.yml -R "$GITHUB_REPOSITORY" --ref "$branch" -f pr_number="$num"
+          if [ -n "$PR" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --silent \
+              -f body="🔁 The canary of this change was rolled back. Root cause and proposed fix: #$num"
+          fi
+          { echo "## 3. SRE agent"; echo "Root-cause PR: #$num (\`$branch\`)"; } >> "$GITHUB_STEP_SUMMARY"
