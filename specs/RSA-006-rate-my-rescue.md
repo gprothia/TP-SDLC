@@ -1,7 +1,7 @@
 ---
 id: RSA-006
 title: Rate my rescue
-status: approved
+status: implemented
 owner: "@gprothia"
 issue: "#2"
 ---
