@@ -16,11 +16,14 @@ from __future__ import annotations
 import asyncio
 import html
 import os
+import re
 import time
+from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 API_URL = os.environ.get("API_URL", "http://localhost:8080")
 API_AUDIENCE = os.environ.get("API_AUDIENCE", "")
@@ -73,6 +76,8 @@ TRACKER_STEPS = [
     ("arrived", "Arrived"),
 ]
 CANCELLABLE_STATUSES = {"received", "assigned", "en_route"}
+RATING_TAGS = ("On time", "Friendly driver", "Explained the fix")
+DRIVERS_STATIC_DIR = Path(__file__).resolve().parent / "static" / "drivers"
 
 CSS = """
 *{box-sizing:border-box}
@@ -113,6 +118,20 @@ align-items:center;justify-content:center;font-weight:700;margin-bottom:6px;back
 dialog{border:0;border-radius:12px;padding:22px;max-width:400px;width:90%;box-shadow:0 12px 30px rgba(0,0,0,.2)}
 dialog::backdrop{background:rgba(15,23,42,.48)}
 .toast-msg{margin-top:10px;font-size:14px;color:#137333;font-weight:600}
+.star-row{display:flex;gap:8px;margin:12px 0}
+.star-btn{background:#F1F3F4;color:#5F6368;border:1px solid #DADCE0;font-size:22px;padding:8px 14px;border-radius:10px}
+.star-btn[aria-checked="true"]{background:#FEF7E0;color:#B06000;border-color:#F9AB00}
+.tag-row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 16px}
+.tag-btn{background:#F8F9FA;color:#202124;border:1px solid #DADCE0;border-radius:999px;padding:7px 14px;font-size:14px}
+.tag-btn.active,.tag-btn[aria-pressed="true"]{background:#E8F0FE;color:#0B3D91;border-color:#0B3D91;font-weight:600}
+textarea{width:100%;padding:10px;border:1px solid #DADCE0;border-radius:8px;font-size:15px;font-family:inherit;min-height:84px}
+.driver-avatar{width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid #E8F0FE;flex-shrink:0}
+.driver-initials{width:52px;height:52px;border-radius:50%;background:#E8F0FE;color:#0B3D91;display:inline-flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0}
+.standing-item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid #E8EAED}
+.standing-left{display:flex;align-items:center;gap:12px}
+.standing-right{text-align:right;white-space:nowrap}
+.pill-link{display:inline-block;padding:6px 14px;border-radius:999px;border:1px solid #DADCE0;background:#fff;color:#202124;text-decoration:none;font-size:14px}
+.pill-link.active{background:#0B3D91;color:#fff;border-color:#0B3D91}
 """
 
 
@@ -125,7 +144,11 @@ def page(title: str, body: str, user: dict | None = None) -> HTMLResponse:
         )
     nav = ""
     if user and user["role"] == "member":
-        nav = '<a href="/requests/new">Request help</a><a href="/requests">My requests</a>'
+        nav = (
+            '<a href="/requests/new">Request help</a>'
+            '<a href="/requests">My requests</a>'
+            '<a href="/leaderboard">Top drivers this month</a>'
+        )
     elif user:
         nav = '<a href="/requests">All requests</a>'
     return HTMLResponse(
@@ -348,6 +371,10 @@ def _live_tracking_html(r: dict, user: dict) -> str:
         if can_cancel
         else ""
     )
+    rate_btn = ""
+    if user["role"] == "member" and status == "completed" and r.get("driver_name"):
+        label = "View submitted rating" if r.get("rating") else "Rate this rescue"
+        rate_btn = f'<a href="/requests/{r["id"]}/rate"><button type="button">{label}</button></a>'
 
     return f"""<div class="card eta-hero {hero_cls}" data-testid="refresh-interval" data-refresh-ms="120000">
   <div>Live Rescue Tracking</div>
@@ -365,6 +392,7 @@ def _live_tracking_html(r: dict, user: dict) -> str:
   <div class="actions">
     <button type="button" id="callDriverBtn">Call Driver</button>
     <button type="button" class="btn-secondary" id="shareLinkBtn">Share Live Link</button>
+    {rate_btn}
     {cancel_btn}
   </div>
   <div id="shareToast" class="toast-msg" aria-live="polite"></div>
@@ -480,3 +508,229 @@ async def cancel_request(request: Request, request_id: str):
             user,
         )
     return RedirectResponse(f"/requests/{request_id}", status_code=303)
+
+
+# --------------------------------------------------------------------------- RSA-006 rate my rescue & leaderboard
+
+
+@app.get("/static/drivers/{filename}")
+async def driver_photo(request: Request, filename: str):
+    if not await signed_in(request):
+        return to_signin()
+    if not re.fullmatch(r"[a-z0-9-]+\.jpg", filename):
+        return HTMLResponse("Not found", status_code=404)
+    path = DRIVERS_STATIC_DIR / filename
+    if not path.is_file():
+        return HTMLResponse("Not found", status_code=404)
+    return FileResponse(path, media_type="image/jpeg")
+
+
+def _receipt_html(r: dict, rating: dict, avg: float | None = None, thank_you: bool = False) -> str:
+    stars = rating["stars"]
+    tags_html = "".join(f'<span class="badge" style="margin-right:6px">{html.escape(t)}</span>' for t in rating["tags"])
+    if not tags_html:
+        tags_html = '<span class="muted">No tags selected</span>'
+    comment_text = html.escape(rating["comment"]) if rating.get("comment") else ""
+    comment_block = (
+        f'<blockquote data-testid="receipt-comment" style="margin:12px 0;padding:10px 14px;'
+        f'background:#F8F9FA;border-left:3px solid #0B3D91">{comment_text}</blockquote>'
+        if comment_text
+        else '<p data-testid="receipt-comment" class="muted"></p>'
+    )
+    avg_chip = f'<span class="badge" data-testid="driver-updated-avg">★ {avg:.2f} avg</span>' if avg is not None else ""
+    heading = "<h1>Thank you!</h1>" if thank_you else f"<h1>Your rating for {html.escape(r['id'])}</h1>"
+    return f"""<div class="card">
+  {heading}
+  <p class="muted">{html.escape(r.get("driver_name") or "Driver")} &bull; {html.escape(r["id"])} {avg_chip}</p>
+  <p data-testid="receipt-score"><strong>{stars} out of 5 stars</strong></p>
+  <div data-testid="receipt-tags">{tags_html}</div>
+  {comment_block}
+  <div class="actions">
+    <a href="/leaderboard"><button type="button">View Top drivers this month</button></a>
+    <a href="/requests/{html.escape(r["id"])}"><button type="button" class="btn-secondary">Back to request</button></a>
+  </div>
+</div>"""
+
+
+@app.get("/requests/{request_id}/rate")
+async def rate_page(request: Request, request_id: str):
+    user = await signed_in(request)
+    if not user:
+        return to_signin()
+    resp = await client.get(f"/v1/requests/{request_id}", headers=auth_headers(request))
+    if resp.status_code != 200:
+        return page("Not found", '<div class="card"><h1>Request not found</h1></div>', user)
+    r = resp.json()
+    if r.get("rating"):
+        return page(f"Rating {r['id']}", _receipt_html(r, r["rating"], thank_you=False), user)
+    if r["status"] != "completed" or not r.get("driver_name"):
+        return page(
+            f"Rate {r['id']}",
+            f'<div class="card"><h1>Rate your rescue</h1>'
+            f'<p class="muted">Ratings open once your rescue is completed.</p>'
+            f'<a href="/requests/{html.escape(r["id"])}"><button type="button" class="btn-secondary">Back to request</button></a></div>',
+            user,
+        )
+
+    star_buttons = "".join(
+        f'<button type="button" class="star-btn" role="radio" aria-checked="false" '
+        f'aria-label="{i} {"star" if i == 1 else "stars"}" data-star="{i}">★ {i}</button>'
+        for i in range(1, 6)
+    )
+    tag_buttons = "".join(
+        f'<button type="button" class="tag-btn" aria-pressed="false" data-tag="{html.escape(t)}">{html.escape(t)}</button>'
+        for t in RATING_TAGS
+    )
+    driver_name = html.escape(r["driver_name"])
+    return page(
+        f"Rate {r['id']}",
+        f"""<div class="card">
+  <h1>How did we do?</h1>
+  <p class="muted">Rate your completed rescue {html.escape(r["id"])} with <strong>{driver_name}</strong>.</p>
+  <form method="post" action="/requests/{html.escape(r["id"])}/rate" id="rateForm">
+    <input type="hidden" name="stars" id="starsInput" value="0">
+    <div id="tagsInputs"></div>
+    <div class="star-row" role="radiogroup" aria-label="Star rating">{star_buttons}</div>
+    <div class="tag-row" role="group" aria-label="Praise tags">{tag_buttons}</div>
+    <label>Comment (optional)<textarea name="comment" maxlength="300" placeholder="Share what stood out..."></textarea></label>
+    <button type="submit">Submit rating</button>
+  </form>
+</div>
+<script>
+(() => {{
+  const starsInput = document.getElementById("starsInput");
+  const starBtns = document.querySelectorAll(".star-btn");
+  starBtns.forEach((btn) => {{
+    btn.addEventListener("click", () => {{
+      const val = Number(btn.dataset.star);
+      starsInput.value = String(val);
+      starBtns.forEach((b) => {{
+        b.setAttribute("aria-checked", Number(b.dataset.star) === val ? "true" : "false");
+      }});
+    }});
+  }});
+  const selectedTags = new Set();
+  const tagsInputs = document.getElementById("tagsInputs");
+  document.querySelectorAll(".tag-btn").forEach((btn) => {{
+    btn.addEventListener("click", () => {{
+      const tag = btn.dataset.tag;
+      if (selectedTags.has(tag)) {{
+        selectedTags.delete(tag);
+        btn.setAttribute("aria-pressed", "false");
+      }} else {{
+        selectedTags.add(tag);
+        btn.setAttribute("aria-pressed", "true");
+      }}
+      tagsInputs.innerHTML = "";
+      selectedTags.forEach((t) => {{
+        const inp = document.createElement("input");
+        inp.type = "hidden";
+        inp.name = "tags";
+        inp.value = t;
+        tagsInputs.appendChild(inp);
+      }});
+    }});
+  }});
+}})();
+</script>""",
+        user,
+    )
+
+
+@app.post("/requests/{request_id}/rate")
+async def submit_rating(
+    request: Request,
+    request_id: str,
+    stars: int = Form(0),
+    tags: list[str] = Form(default=[]),
+    comment: str = Form(""),
+):
+    user = await signed_in(request)
+    if not user:
+        return to_signin()
+    r = await client.post(
+        f"/v1/requests/{request_id}/rating",
+        json={"stars": stars, "tags": tags, "comment": comment or None},
+        headers=auth_headers(request),
+    )
+    if r.status_code == 401:
+        return to_signin()
+    if r.status_code != 201:
+        detail = "; ".join(e["message"] for e in r.json().get("errors", [])) or r.json().get("message", "")
+        return page(
+            "Rating failed",
+            f'<div class="card"><p class="error" role="alert">{html.escape(detail)}</p>'
+            f'<a href="/requests/{html.escape(request_id)}/rate">Back</a></div>',
+            user,
+        )
+    req_resp = await client.get(f"/v1/requests/{request_id}", headers=auth_headers(request))
+    req_data = req_resp.json() if req_resp.status_code == 200 else {"id": request_id, "driver_name": "Driver"}
+    body = r.json()
+    return page(
+        "Thank you!",
+        _receipt_html(req_data, body["rating"], avg=body["driver_monthly_avg"], thank_you=True),
+        user,
+    )
+
+
+@app.get("/leaderboard")
+async def leaderboard_page(request: Request, tag: str | None = None):
+    user = await signed_in(request)
+    if not user:
+        return to_signin()
+    params = {"tag": tag} if tag else None
+    resp = await client.get("/v1/drivers/leaderboard", params=params, headers=auth_headers(request))
+    if resp.status_code == 401:
+        return to_signin()
+    if resp.status_code == 403:
+        denied = page("Forbidden", '<div class="card"><p class="error">Only members can view the leaderboard.</p></div>', user)
+        denied.status_code = 403
+        return denied
+    if resp.status_code != 200:
+        return page("Leaderboard", '<div class="card"><p class="error">Could not load leaderboard.</p></div>', user)
+
+    data = resp.json()
+    all_cls = "pill-link active" if not tag else "pill-link"
+    filter_links = [f'<a class="{all_cls}" href="/leaderboard">All drivers</a>']
+    for t in RATING_TAGS:
+        cls = "pill-link active" if tag == t else "pill-link"
+        filter_links.append(f'<a class="{cls}" href="/leaderboard?tag={quote(t)}">{html.escape(t)}</a>')
+
+    items_html = []
+    for idx, d in enumerate(data["drivers"], start=1):
+        name = html.escape(d["driver_name"])
+        initials = "".join(part[0] for part in d["driver_name"].split()[:2]).upper()
+        avatar = (
+            f'<img class="driver-avatar" src="{html.escape(d["photo_url"])}" alt="{name}">'
+            if d.get("photo_url")
+            else f'<span class="driver-initials" aria-hidden="true">{html.escape(initials)}</span>'
+        )
+        quote_html = f'<div class="muted">&ldquo;{html.escape(d["latest_quote"])}&rdquo;</div>' if d.get("latest_quote") else ""
+        tags_summary = " &bull; ".join(
+            f"{html.escape(k)} ({v})" for k, v in d.get("tag_counts", {}).items() if v > 0
+        )
+        items_html.append(
+            f'<li class="standing-item">'
+            f'<div class="standing-left"><strong>#{idx}</strong>{avatar}'
+            f'<div><div><strong>{name}</strong></div>'
+            f'<div class="muted">{html.escape(d.get("truck") or "")}</div>'
+            f'<div class="muted">{tags_summary}</div>{quote_html}</div></div>'
+            f'<div class="standing-right"><div><strong>★ {d["avg_stars"]:.2f}</strong></div>'
+            f'<div class="muted">{d["rating_count"]} ratings</div></div></li>'
+        )
+
+    standings = (
+        f'<ol data-testid="standings-list" style="list-style:none;padding:0;margin:0">{"".join(items_html)}</ol>'
+        if items_html
+        else '<p class="muted" data-testid="standings-list">No drivers match this filter yet.</p>'
+    )
+    return page(
+        "Top drivers this month",
+        f"""<div class="card">
+  <h1>Top drivers this month</h1>
+  <p class="muted">{html.escape(data["month"])} &bull; Fleet average ★ {data["fleet_avg_stars"]:.2f} &bull; {data["total_ratings"]} ratings</p>
+  <div class="tag-row" role="group" aria-label="Filter drivers by tag">{"".join(filter_links)}</div>
+  {standings}
+</div>""",
+        user,
+    )
