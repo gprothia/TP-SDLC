@@ -8,3 +8,4 @@ reports/
 deploy/overlay-pr/
 deploy/overlay-dev/
 .tmp/
+.ruff_cache/

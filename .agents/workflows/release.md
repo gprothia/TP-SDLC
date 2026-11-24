@@ -1,10 +1,10 @@
 ---
-description: Merge a green PR and follow its release - UAT, standard-change check, GKE canary, SLO verdict, promote or rollback (rules in AGENTS.md section 6)
+description: Merge a green PR and follow its release - UAT, standard-change check, GKE canary, SLO verdict, promote or rollback (rules: standards/release.md)
 ---
 
 # /release
 
-Usage: `/release #<PR>`. Follow `AGENTS.md` section 6. Explain each stage to the user in
+Usage: `/release #<PR>`. Rules: `standards/release.md` (REL-2 to REL-6). Explain each stage to the user in
 plain words as it happens; they may be presenting this to a client.
 
 ## 1. Ready to merge?
@@ -12,7 +12,7 @@ plain words as it happens; they may be presenting this to a client.
 1. `gh pr view <PR> --json number,title,state,mergeable,headRefOid,labels,files` and
    `gh pr checks <PR>`. Summarise: title, files changed, checks (all must be green).
    If anything is red or pending, stop and say what.
-2. Predict the release path with the same rule the pipeline uses (standards/slo.md SLO-2):
+2. Predict the release path with the same rule the pipeline uses (REL-2):
    list the changed files, and say "standard change: canary, no approval" or "not standard
    because <gated files / label>: a reviewer must approve in GitHub".
 3. Ask the user: "Merge PR #<n> now?" Wait for a clear yes. Then

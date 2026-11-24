@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SLO budget for a release, and the canary verdict (standards/slo.md SLO-1, SLO-3, SLO-4).
+"""SLO budget for a release, and the canary verdict (standards/release.md REL-1, REL-3, REL-4).
 
 check_slo.py target [spec files...]
     The strictest ```slo block among the given specs (defaults 300 ms / 1% if none).
@@ -39,7 +39,7 @@ def target(files: list[str]) -> dict:
         if p.suffix == ".md" and p.exists() and not p.name.startswith("_") and (slo := spec_slo(p)):
             found[p.stem.split("-", 2)[0] + "-" + p.stem.split("-", 2)[1]] = slo
     if not found:
-        return {**DEFAULT, "from": ["the default in standards/slo.md"]}
+        return {**DEFAULT, "from": ["the default in standards/release.md (REL-1)"]}
     return {
         "p95_latency_ms": min(s["p95_latency_ms"] for s in found.values()),
         "error_rate_pct": min(s["error_rate_pct"] for s in found.values()),

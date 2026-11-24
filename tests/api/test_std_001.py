@@ -1,4 +1,4 @@
-"""API tests generated from specs/STD-001-enterprise-baseline.md (standards/aaa.md, api.md, logging.md)."""
+"""API tests generated from specs/STD-001-enterprise-baseline.md (standards AAA, API, LOG, SEC-8)."""
 
 import json
 import uuid
@@ -83,3 +83,11 @@ def test_sign_in_is_audited(api, as_user):
     api.post("/v1/auth/demo-login", json={"user": "alice"})
     events = as_user("dana").get("/v1/audit", params={"event": "auth.signed_in", "target": "alice"}).json()
     assert events and events[0]["actor"] == "alice"
+
+
+@pytest.mark.ac("STD-001-AC11")
+@pytest.mark.parametrize("signed_in", [False, True])
+def test_api_responses_are_not_sniffed_or_cached(api, as_user, signed_in):
+    r = as_user("alice").get("/v1/me") if signed_in else api.get("/v1/me")
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["Cache-Control"] == "no-store"

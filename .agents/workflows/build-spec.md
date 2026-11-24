@@ -1,33 +1,35 @@
 ---
-description: Build an approved spec - tests, code, GKE staging with full regression, evidence, PR (rules in AGENTS.md)
+description: Build an approved spec - tests, code, GKE staging with full regression, evidence, PR (rules: standards/testing.md, coding.md, security.md, delivery.md)
 ---
 
 # /build-spec
 
-Usage: `/build-spec specs/<ID>-<name>.md`. Follow `AGENTS.md` sections 3–5.
+Usage: `/build-spec specs/<ID>-<name>.md`. Rules: `standards/testing.md` (tests), `coding.md` and
+`security.md` (code), `delivery.md` (gates and PR). Quote rule IDs in the plan.
 
 ## 1. Check and plan
 // turbo
-1. `python scripts/check_spec.py <spec>` passes and the spec is `status: approved`; you are on
+1. `python standards/checks/check_spec.py <spec>` passes and the spec is `status: approved`; you are on
    its `feat/...` branch. Otherwise stop: the spec needs `/write-spec` first.
 2. Plan: for each acceptance criterion, the tests to add (file + name) and the code changes.
-   Note anything ambiguous. **Wait for the user to approve the plan.**
+   Name any library you need; if it isn't in the approved list (CODE-2), stop: it needs a PR
+   to the standards repository first. Note anything ambiguous. **Wait for the user to approve the plan.**
 
 ## 2. Tests first
-3. Write the tests (`AGENTS.md` section 3).
+3. Write the tests (TEST-2 to TEST-7).
 // turbo
-4. `python scripts/check_traceability.py` passes.
+4. `python standards/checks/check_traceability.py` passes (TEST-1).
 5. Run the app and both suites locally. The new tests fail (nothing built yet); all old tests
    pass. Show the user the failing list - it is the definition of done.
-   - `ruff format . && ruff check .` and `cd tests/ui && npx eslint .` (style, standards/code-style.md)
    - `cd services/api && ENABLE_TEST_HOOKS=true uvicorn app:app --port 8080`
    - `cd services/web && API_URL=http://localhost:8080 uvicorn app:app --port 3000`
    - `API_BASE_URL=http://localhost:8080 pytest tests/api -q`
    - `cd tests/ui && WEB_BASE_URL=http://localhost:3000 API_BASE_URL=http://localhost:8080 npx playwright test`
 
 ## 3. Build
-6. Change `services/` until **every** test passes, new and old. Never edit a test or the spec
-   to get there; if one is wrong, stop and explain.
+6. Change `services/` until **every** test passes, new and old, and
+   `standards/checks/all.sh` passes (style, approved libraries, code security, Dockerfiles).
+   Never edit a test or the spec to get there (TEST-8); if one is wrong, stop and explain.
 7. Click through each [ui] criterion in the browser and show the user screenshots.
 8. Set the spec to `status: implemented`. Commit everything: `<ID>: implement <feature>`.
 

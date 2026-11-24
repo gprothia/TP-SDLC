@@ -1,5 +1,5 @@
 ---
-description: Review the SRE agent's root-cause PR after a rollback - explain it, load-test the fix on GKE, post the evidence (rules in AGENTS.md section 6)
+description: Review the SRE agent's root-cause PR after a rollback - explain it, load-test the fix on GKE, post the evidence (rules: standards/release.md REL-4, REL-7)
 ---
 
 # /sre-review
@@ -13,7 +13,8 @@ Usage: `/sre-review` (latest open PR labelled `sre-agent`) or `/sre-review #<PR>
 2. Explain to the user, in plain words: what broke (endpoint, numbers vs budget), the root
    cause (file, function, mechanism), why tests didn't catch it, and what the fix changes.
    Check the fix yourself: does it remove the cause? Does it keep the API response the
-   same? Does it break any standard (logging, AAA, code style)? Say what you think.
+   same? Does it break any standard (logging, AAA, coding, security)? Run `standards/checks/all.sh`.
+   Say what you think.
 3. If the fix is wrong or incomplete, propose the change and ask before committing it.
 
 ## 2. Prove the fix under production-like load

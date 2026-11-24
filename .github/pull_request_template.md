@@ -7,6 +7,11 @@
 - [ ] Every [ui] criterion has a Playwright test tagged `@<AC-ID>`
 - Deferred: none
 
+## Standards (DEL-3)
+- [ ] `standards/checks/all.sh` passes
+- [ ] No new library outside the approved list (CODE-2)
+- Rules that decided something in this change: <!-- e.g. AAA-7, SEC-9 -->
+
 ## GKE sandbox (before this PR)
 <!-- Paste the line printed by scripts/sandbox.sh, e.g.
 Sandbox result: PASSED - 20/20 tests passed (namespace dev-feat-ord-002-cancel-order, images dev-95d6ef7)

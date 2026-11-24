@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Is a merged PR a standard change? (standards/slo.md SLO-2, SLO-5)
+"""Is a merged PR a standard change? (standards/release.md REL-2, REL-5)
 
 A standard change goes to production as a canary with no approval meeting. Anything else
 waits for a named approver in the GitHub "production" environment. The rule is mechanical,
@@ -19,7 +19,10 @@ import sys
 
 # Changing any of these is never routine: the rules, production, or the release gate itself.
 GATED = (
+    "standards",  # the pinned SDLC Standards version (a submodule: the path has no slash)
     "standards/",
+    ".gitmodules",
+    "ruff.toml",
     "deploy/prod/",
     ".github/workflows/release.yml",
     ".github/CODEOWNERS",
@@ -41,7 +44,7 @@ def classify(files: list[str], tests: str, spec_ok: bool, labels: list[str], pr:
         ok = ok and passed
 
     check(bool(pr), f"Merged through pull request #{pr}", "No pull request found for this commit (direct push)")
-    check(spec_ok, "Specs pass scripts/check_spec.py", "Specs fail scripts/check_spec.py")
+    check(spec_ok, "Specs pass standards/checks/check_spec.py", "Specs fail standards/checks/check_spec.py")
     check(
         tests == "success",
         "All tests passed in the PR's GKE sandbox (check: Spec acceptance tests)",

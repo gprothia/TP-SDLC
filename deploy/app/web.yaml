@@ -14,6 +14,8 @@ spec:
           ports: [{ containerPort: 3000 }]
           env:
             - { name: API_URL, value: "http://api:8080" }
+            # In-cluster sandboxes serve plain HTTP, so the browser would drop a Secure cookie (SEC-9).
+            - { name: COOKIE_SECURE, value: "false" }
           readinessProbe:
             httpGet: { path: /healthz, port: 3000 }
             periodSeconds: 5

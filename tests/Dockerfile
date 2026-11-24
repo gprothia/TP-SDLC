@@ -13,6 +13,8 @@ COPY ui/package.json ui/package-lock.json ui/
 RUN cd ui && npm ci --no-audit --no-fund
 
 COPY . .
-RUN chmod +x run.sh
+RUN chmod +x run.sh && chown -R pwuser:pwuser /tests
+# The Playwright image's unprivileged user (standards/security.md SEC-4).
+USER pwuser
 ENV CI=true REPORT_DIR=/reports
 ENTRYPOINT ["/tests/run.sh"]

@@ -5,15 +5,15 @@ contract; a canary on GKE checks it with traffic; the pipeline promotes or rolls
 rollback an SRE agent hands you the root cause and a fix. Risky changes still need a named
 approver.
 
-Rules: `standards/slo.md`. Pipeline: `.github/workflows/release.yml`. Antigravity commands:
-`/release`, `/canary-status`, `/sre-review` (`AGENTS.md` section 6).
+Rules: `standards/release.md`. Pipeline: `.github/workflows/release.yml`. Antigravity commands:
+`/release`, `/canary-status`, `/sre-review`.
 
 ## One-time setup
 
 1. **Settings → Actions → General → Workflow permissions** → tick *Allow GitHub Actions to
    create and approve pull requests* (the SRE agent opens its PR).
 2. **Settings → Environments → New environment** `production` → **Required reviewers**: you.
-   Non-standard changes wait for your click (SLO-5). Without it they fail with a clear message.
+   Non-standard changes wait for your click (REL-5). Without it they fail with a clear message.
 
 ## Before the client arrives (about 15 min)
 
@@ -51,9 +51,10 @@ Rules: `standards/slo.md`. Pipeline: `.github/workflows/release.yml`. Antigravit
 
 ## Scene 4 (optional): risky changes still need a person (about 3 min)
 
-Ask the agent to make a small edit to `standards/` in its own PR, merge it, then `/release`.
+Move TP-SDLC to a new version of the SDLC standards in its own PR (the `standards` submodule),
+merge it, then `/release`.
 The release run shows ⏸ **Waiting for review**. Open the run → **Review deployments → Approve**.
-"Rule changes get a named approver, recorded in GitHub. The canary still checks them."
+"A new version of the rules gets a named approver, recorded in GitHub. The canary still checks it."
 
 ## Afterwards
 
