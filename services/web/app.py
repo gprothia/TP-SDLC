@@ -124,13 +124,16 @@ dialog::backdrop{background:rgba(15,23,42,.48)}
 .tag-row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 16px}
 .tag-btn{background:#F8F9FA;color:#202124;border:1px solid #DADCE0;border-radius:999px;padding:7px 14px;font-size:14px}
 .tag-btn.active,.tag-btn[aria-pressed="true"]{background:#E8F0FE;color:#0B3D91;border-color:#0B3D91;font-weight:600}
-textarea{width:100%;padding:10px;border:1px solid #DADCE0;border-radius:8px;font-size:15px;font-family:inherit;min-height:84px}
+textarea{width:100%;padding:10px;border:1px solid #DADCE0;border-radius:8px;
+  font-size:15px;font-family:inherit;min-height:84px}
 .driver-avatar{width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid #E8F0FE;flex-shrink:0}
 .driver-initials{width:52px;height:52px;border-radius:50%;background:#E8F0FE;color:#0B3D91;display:inline-flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0}
-.standing-item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid #E8EAED}
+.standing-item{display:flex;align-items:center;justify-content:space-between;
+  gap:14px;padding:14px 0;border-bottom:1px solid #E8EAED}
 .standing-left{display:flex;align-items:center;gap:12px}
 .standing-right{text-align:right;white-space:nowrap}
-.pill-link{display:inline-block;padding:6px 14px;border-radius:999px;border:1px solid #DADCE0;background:#fff;color:#202124;text-decoration:none;font-size:14px}
+.pill-link{display:inline-block;padding:6px 14px;border-radius:999px;border:1px solid #DADCE0;
+  background:#fff;color:#202124;text-decoration:none;font-size:14px}
 .pill-link.active{background:#0B3D91;color:#fff;border-color:#0B3D91}
 """
 
@@ -568,7 +571,8 @@ async def rate_page(request: Request, request_id: str):
             f"Rate {r['id']}",
             f'<div class="card"><h1>Rate your rescue</h1>'
             f'<p class="muted">Ratings open once your rescue is completed.</p>'
-            f'<a href="/requests/{html.escape(r["id"])}"><button type="button" class="btn-secondary">Back to request</button></a></div>',
+            f'<a href="/requests/{html.escape(r["id"])}">'
+            f'<button type="button" class="btn-secondary">Back to request</button></a></div>',
             user,
         )
 
@@ -578,7 +582,8 @@ async def rate_page(request: Request, request_id: str):
         for i in range(1, 6)
     )
     tag_buttons = "".join(
-        f'<button type="button" class="tag-btn" aria-pressed="false" data-tag="{html.escape(t)}">{html.escape(t)}</button>'
+        f'<button type="button" class="tag-btn" aria-pressed="false" '
+        f'data-tag="{html.escape(t)}">{html.escape(t)}</button>'
         for t in RATING_TAGS
     )
     driver_name = html.escape(r["driver_name"])
@@ -592,7 +597,9 @@ async def rate_page(request: Request, request_id: str):
     <div id="tagsInputs"></div>
     <div class="star-row" role="radiogroup" aria-label="Star rating">{star_buttons}</div>
     <div class="tag-row" role="group" aria-label="Praise tags">{tag_buttons}</div>
-    <label>Comment (optional)<textarea name="comment" maxlength="300" placeholder="Share what stood out..."></textarea></label>
+    <label>Comment (optional)
+      <textarea name="comment" maxlength="300" placeholder="Share what stood out..."></textarea>
+    </label>
     <button type="submit">Submit rating</button>
   </form>
 </div>
@@ -683,7 +690,9 @@ async def leaderboard_page(request: Request, tag: str | None = None):
     if resp.status_code == 401:
         return to_signin()
     if resp.status_code == 403:
-        denied = page("Forbidden", '<div class="card"><p class="error">Only members can view the leaderboard.</p></div>', user)
+        denied = page(
+            "Forbidden", '<div class="card"><p class="error">Only members can view the leaderboard.</p></div>', user
+        )
         denied.status_code = 403
         return denied
     if resp.status_code != 200:
@@ -705,14 +714,14 @@ async def leaderboard_page(request: Request, tag: str | None = None):
             if d.get("photo_url")
             else f'<span class="driver-initials" aria-hidden="true">{html.escape(initials)}</span>'
         )
-        quote_html = f'<div class="muted">&ldquo;{html.escape(d["latest_quote"])}&rdquo;</div>' if d.get("latest_quote") else ""
-        tags_summary = " &bull; ".join(
-            f"{html.escape(k)} ({v})" for k, v in d.get("tag_counts", {}).items() if v > 0
+        quote_html = (
+            f'<div class="muted">&ldquo;{html.escape(d["latest_quote"])}&rdquo;</div>' if d.get("latest_quote") else ""
         )
+        tags_summary = " &bull; ".join(f"{html.escape(k)} ({v})" for k, v in d.get("tag_counts", {}).items() if v > 0)
         items_html.append(
             f'<li class="standing-item">'
             f'<div class="standing-left"><strong>#{idx}</strong>{avatar}'
-            f'<div><div><strong>{name}</strong></div>'
+            f"<div><div><strong>{name}</strong></div>"
             f'<div class="muted">{html.escape(d.get("truck") or "")}</div>'
             f'<div class="muted">{tags_summary}</div>{quote_html}</div></div>'
             f'<div class="standing-right"><div><strong>★ {d["avg_stars"]:.2f}</strong></div>'
@@ -728,7 +737,10 @@ async def leaderboard_page(request: Request, tag: str | None = None):
         "Top drivers this month",
         f"""<div class="card">
   <h1>Top drivers this month</h1>
-  <p class="muted">{html.escape(data["month"])} &bull; Fleet average ★ {data["fleet_avg_stars"]:.2f} &bull; {data["total_ratings"]} ratings</p>
+  <p class="muted">
+    {html.escape(data["month"])} &bull; Fleet average ★ {data["fleet_avg_stars"]:.2f} &bull;
+    {data["total_ratings"]} ratings
+  </p>
   <div class="tag-row" role="group" aria-label="Filter drivers by tag">{"".join(filter_links)}</div>
   {standings}
 </div>""",
