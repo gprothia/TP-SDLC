@@ -13,22 +13,31 @@ A demo for AAA showing three things in one storyline:
 The app is a small **Roadside Assistance portal**: members ask for help (tow, battery, flat
 tyre, lockout, fuel); dispatchers move each request along. *Demo application, not an AAA product.*
 
+## Getting the code
+
+The rules live in a separate repository that only the standards owners can change, so clone
+with it:
+
+```bash
+git clone --recurse-submodules https://github.com/gprothia/TP-SDLC.git
+# already cloned? then: git submodule update --init
+```
+
 ## What's where
 
 | Path | Purpose |
 |---|---|
-| `AGENTS.md` | The one rulebook every agent follows |
-| `standards/` | **Enterprise standards**: AAA, API, logging, SLO, code style, security |
-| `specs/` | What the app must do. `_TEMPLATE.md` includes the required enterprise sections |
+| `AGENTS.md` | What this app is, and where the rules are (a short index for agents) |
+| `standards/` | **The rules**, from the [SDLC Standards](https://github.com/gprothia/SDLCStandards) repository, pinned to a version (a git submodule). Read-only here |
+| `standards/checks/all.sh` | Every standards check in one command: spec format, traceability, approved libraries, Dockerfiles, style, code security |
+| `specs/` | What the app must do, written from `standards/templates/spec.md` |
 | `services/api`, `services/web` | The API (FastAPI, `/v1`) and the website (sign-in, requests, dispatcher updates) |
 | `tests/api`, `tests/ui` | pytest and Playwright suites; every test tagged with its spec rule |
-| `scripts/check_spec.py` | Rejects specs missing a section, a permissions table, audit events or an SLO |
-| `scripts/check_traceability.py` | Every approved rule has a test |
 | `scripts/sandbox.sh` | Pre-PR GKE run: build, stage as pods, run all tests, publish evidence |
-| `ruff.toml`, `tests/ui/eslint.config.mjs` | Code style and safety rules the tools enforce |
-| `.agents/workflows/` | Antigravity commands: `/write-spec`, `/build-spec` |
-| `.github/workflows/` | PR checks (spec, coverage, style, Gemini, GKE), UAT deploy, cleanup |
-| `.github/CODEOWNERS` | Who must approve changes to standards and deployment |
+| `ruff.toml` | One line: use the standards' Python rules |
+| `.agents/workflows/` | Antigravity commands: `/write-spec`, `/build-spec`, `/release`, `/canary-status`, `/sre-review` |
+| `.github/workflows/` | PR checks (spec, coverage, coding standards, security scans, Gemini, GKE), UAT deploy, release, cleanup |
+| `.github/CODEOWNERS` | Who must approve a new standards version, deployment and release-gate changes |
 
 ## The app today
 
@@ -40,7 +49,7 @@ tyre, lockout, fuel); dispatchers move each request along. *Demo application, no
 | `RSA-003` | Dispatcher updates status, ETA, driver | 5 | 4 API, 1 UI |
 
 Demo users (sign-in page): **Alice** and **Bob** (members), **Dana** (dispatcher).
-Sign-in is simulated (`standards/aaa.md` AAA-3); in production the company identity provider
+Sign-in is simulated (AAA-3); in production the company identity provider
 issues the same kind of token.
 
 ## Run it locally

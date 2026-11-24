@@ -1,20 +1,21 @@
 ---
 id: STD-001
-title: Enterprise baseline (AAA, logging, API)
+title: Enterprise baseline (AAA, logging, API, web security)
 status: implemented
 owner: "@gprothia"
 issue: "#1"
 ---
 
-# STD-001: Enterprise baseline (AAA, logging, API)
+# STD-001: Enterprise baseline (AAA, logging, API, web security)
 
 ## Why
-The standards in `standards/` apply to every endpoint. This spec turns the shared ones into
+The standards in `standards/` (SDLCStandards) apply to every endpoint. This spec turns the shared ones into
 tests, so every PR proves them again, not just the features it changes.
 
 ## Scope
 - In: authentication on every `/v1` endpoint, error format, request IDs, structured and
-  masked logs, sign-in audit, sign-in required on every page.
+  masked logs, sign-in audit, sign-in required on every page, security headers and the
+  session cookie's flags (SEC-8, SEC-9).
 - Out: feature-specific roles and audit events (each feature spec covers its own).
 
 ## Acceptance criteria
@@ -57,10 +58,27 @@ tests, so every PR proves them again, not just the features it changes.
 - **When** they open `/requests`
 - **Then** they are sent to `/signin`, which shows a "Sign in as Alice Ng (member)" button
 
+### STD-001-AC9 [ui]
+- **Given** any visitor
+- **When** they open `/signin`
+- **Then** the response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: same-origin`, `Content-Security-Policy: frame-ancestors 'none'` and
+  `Strict-Transport-Security: max-age=31536000` (SEC-8)
+
+### STD-001-AC10 [ui]
+- **Given** a user signs in as `alice`
+- **Then** the browser holds a `session` cookie that is `HttpOnly` and `SameSite=Lax`, and also
+  `Secure` when the website is served over `https` (SEC-9)
+
+### STD-001-AC11 [api]
+- **Given** any `/v1` request, signed in or not
+- **Then** the response carries `X-Content-Type-Options: nosniff` and `Cache-Control: no-store` (SEC-8)
+
 ## Security & access (AAA)
 
 ### Authentication
-All `/v1` endpoints except sign-in require a bearer token (standards/aaa.md AAA-1, AAA-2).
+All `/v1` endpoints except sign-in require a bearer token (AAA-1, AAA-2). The website keeps
+the token in an `HttpOnly`, `SameSite=Lax`, `Secure` cookie (SEC-9).
 
 ### Authorization
 | Action | Roles allowed |
@@ -75,7 +93,7 @@ All `/v1` endpoints except sign-in require a bearer token (standards/aaa.md AAA-
 | `auth.signed_in` | A user signs in | actor, target (the user) |
 
 ## Logging
-One `http.request` line per request (standards/logging.md LOG-2); phone numbers masked
+One `http.request` line per request (LOG-2); phone numbers masked
 (LOG-4); audit events logged (LOG-5).
 
 ## API contract

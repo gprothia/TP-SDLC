@@ -1,17 +1,17 @@
 ---
-description: Turn a feature request (and any linked prototype) into an approved enterprise spec (rules in AGENTS.md)
+description: Turn a feature request (and any linked prototype) into an approved enterprise spec (rules: standards/spec.md)
 ---
 
 # /write-spec
 
-Usage: `/write-spec #<issue number>`. Follow `AGENTS.md`: section 0 (standards), 1b
-(prototypes) and 2 (specs).
+Usage: `/write-spec #<issue number>`. Rules: `standards/spec.md` (SPEC-1 to SPEC-10), and the
+standards each enterprise section answers.
 
 ## 1. Gather
 // turbo
 1. Read the request and every comment: `gh issue view <n> --comments`.
-2. Read `standards/README.md` and every standard it lists, `specs/_TEMPLATE.md`, and the
-   existing specs in the same area (e.g. all `RSA-*`).
+2. Read `standards/spec.md`, `aaa.md`, `api.md`, `logging.md`, `security.md` and `release.md`,
+   `standards/templates/spec.md`, and the existing specs in the same area (e.g. all `RSA-*`).
 // turbo
 3. `git checkout main && git pull`, then `git checkout -b feat/<id-lower>-<short-name>`.
 
@@ -31,7 +31,7 @@ Usage: `/write-spec #<issue number>`. Follow `AGENTS.md`: section 0 (standards),
    an open question naming the standard rule (e.g. "AAA-1: does the share link need sign-in?").
 
 ## 3. Write the spec
-8. Write `specs/<ID>-<short-name>.md` from the template, `status: draft`:
+8. Write `specs/<ID>-<short-name>.md` from `standards/templates/spec.md`, `status: draft`:
    - acceptance criteria from the request (and the prototype's inventory), with exact values;
    - every enterprise section filled from `standards/`: Security & access (AAA) with an
      Authorization table and audit events, Logging, API contract, SLO;
@@ -41,7 +41,7 @@ Usage: `/write-spec #<issue number>`. Follow `AGENTS.md`: section 0 (standards),
      which criteria each element became;
    - every decision not in the issue or its comments under Open questions as `- [ ]`.
 // turbo
-9. `python scripts/check_spec.py specs/<file>`. Fix every error; review every warning.
+9. `python standards/checks/check_spec.py specs/<file>`. Fix every error; review every warning.
 10. Show the user the spec, the prototype inventory and the open questions, grouped as
     **business** (what members see) and **IT / security** (what the standards require). Wait.
 

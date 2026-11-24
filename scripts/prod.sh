@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The demo's production space on GKE and its canary releases (standards/slo.md SLO-3, SLO-4).
+# The demo's production space on GKE and its canary releases (standards/release.md REL-3, REL-4).
 # The release workflow (.github/workflows/release.yml) runs these; people and agents use
 # them to look and to tidy up.
 #

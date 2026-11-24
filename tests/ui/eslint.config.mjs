@@ -1,4 +1,4 @@
-// TypeScript test style and likely-bug checks (standards/code-style.md STY-2).
+// TypeScript test style and likely-bug checks (standards/coding.md CODE-8).
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 

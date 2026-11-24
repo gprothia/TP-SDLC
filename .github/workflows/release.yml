@@ -1,6 +1,6 @@
 name: Release (canary)
 
-# Replaces change-board sign-off for standard changes (standards/slo.md SLO-2..SLO-5):
+# Replaces change-board sign-off for standard changes (standards/release.md REL-2..REL-5):
 #   1. classify   is the merged PR a standard change? (scripts/classify_change.py)
 #   2. approve    only if NOT standard: waits for a reviewer in the "production" environment
 #   3. canary     1 copy of the new version next to 9 stable ones on GKE (about 10% of traffic),
@@ -58,7 +58,7 @@ jobs:
       err: ${{ steps.slo.outputs.err }}
     steps:
       - uses: actions/checkout@v5
-        with: { ref: "${{ env.SHA }}" }
+        with: { ref: "${{ env.SHA }}", submodules: true }
       - uses: actions/setup-python@v6
         with: { python-version: "3.12" }
 
@@ -82,7 +82,7 @@ jobs:
       - name: Specs pass the checker
         id: spec
         run: |
-          if python scripts/check_spec.py; then echo "rc=0" >> "$GITHUB_OUTPUT"; else echo "rc=1" >> "$GITHUB_OUTPUT"; fi
+          if python standards/checks/check_spec.py; then echo "rc=0" >> "$GITHUB_OUTPUT"; else echo "rc=1" >> "$GITHUB_OUTPUT"; fi
 
       - name: Standard change?
         id: classify
@@ -122,7 +122,7 @@ jobs:
           n=$(gh api "repos/$GITHUB_REPOSITORY/environments/production" \
                 --jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' 2>/dev/null || echo 0)
           if [ "${n:-0}" = "0" ]; then
-            echo "::error::Not a standard change, but the 'production' environment has no required reviewers. Add them: Settings → Environments → production (standards/slo.md SLO-5)."
+            echo "::error::Not a standard change, but the 'production' environment has no required reviewers. Add them: Settings → Environments → production (standards/release.md REL-5)."
             exit 1
           fi
 
@@ -229,14 +229,14 @@ jobs:
             echo "#### Canary vs SLO"
             cat reports/prod/judge.md 2>/dev/null || echo "_No measurement._"
             echo
-            echo "_No change-board meeting: the decision and its evidence are recorded here (standards/slo.md)._"
+            echo "_No change-board meeting: the decision and its evidence are recorded here (standards/release.md)._"
           } > reports/prod/record.md
           { echo "## 2. Canary"; tail -n +2 reports/prod/record.md; } >> "$GITHUB_STEP_SUMMARY"
           cp evidence/* reports/prod/ 2>/dev/null || true
 
       - name: Post the release record on the merged PR
         if: always() && needs.classify.outputs.pr != ''
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # v2.9.4 (SEC-11)
         with:
           header: release-record
           number: ${{ needs.classify.outputs.pr }}
@@ -257,7 +257,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-        with: { ref: "${{ env.SHA }}", fetch-depth: 0 }
+        with: { ref: "${{ env.SHA }}", fetch-depth: 0, submodules: true }
       - uses: actions/download-artifact@v4
         with: { name: release-evidence, path: evidence }
       - uses: google-github-actions/auth@v3
@@ -311,15 +311,17 @@ jobs:
         run: |
           # The agent may only change application code and add the incident report.
           # Tests, specs, standards, deployment, CI, tools and the partner simulation stay as they are.
-          git checkout -- tests specs standards deploy .github tools scripts services/api/driver_directory.py
-          git clean -fdq -- tests specs standards deploy .github tools scripts
+          # (REL-7.) The standards are a pinned submodule: put them back exactly as pinned.
+          git checkout -- tests specs deploy .github tools scripts services/api/driver_directory.py
+          git clean -fdq -- tests specs deploy .github tools scripts
+          git submodule update --init --force standards && git -C standards clean -fdq
           if [ ! -s "$INCIDENT" ]; then
             mkdir -p incidents
             { echo "# Incident: canary of ${SHA:0:7} rolled back"; echo
               echo "_The SRE agent could not complete an analysis; evidence below for a person to investigate._"; echo
               cat evidence/judge.md; } > "$INCIDENT"
           fi
-          pip install -q ruff==0.16.9
+          pip install -q -r standards/checks/requirements.txt
           ruff format services >/dev/null && ruff check --fix services >/dev/null || true
           git status --short
 

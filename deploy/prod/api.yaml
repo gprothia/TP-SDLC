@@ -1,4 +1,4 @@
-# Production API for canary releases (standards/slo.md SLO-3), rendered by scripts/prod.sh:
+# Production API for canary releases (standards/release.md REL-3), rendered by scripts/prod.sh:
 # NS, IMAGE (api image without tag), STABLE_TAG.
 #
 #   api-stable  9 copies of the current release

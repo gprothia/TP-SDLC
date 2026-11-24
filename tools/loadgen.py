@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Synthetic member traffic for canary releases (standards/slo.md SLO-3).
+"""Synthetic member traffic for canary releases (standards/release.md REL-3).
 
 Runs as a pod next to the API (scripts/prod.sh measure, scripts/sandbox.sh load). It signs
 in as the demo users and calls the API the way the apps do, for DURATION_S seconds. Every
 request opens a new connection, so the Service spreads requests over all copies (about 10%
 reach a 1-in-10 canary). Results are grouped by the X-App-Track response header.
 
-Standard library only, so it runs in the API image without installing anything.
+Uses only httpx (CODE-4), which the API image already has, so it runs there without installing anything.
 
 Env: API_BASE_URL (default http://api:8080), DURATION_S (180), WARMUP_S (10), WORKERS (12).
 Prints one line "LOADGEN_RESULT {json}" at the end.
@@ -19,8 +19,8 @@ import os
 import random
 import threading
 import time
-import urllib.error
-import urllib.request
+
+import httpx
 
 BASE = os.environ.get("API_BASE_URL", "http://api:8080").rstrip("/")
 DURATION_S = float(os.environ.get("DURATION_S", "180"))
@@ -47,38 +47,28 @@ WEIGHTS = [m[0] for m in MIX]
 
 def call(method: str, path: str, token: str | None = None, body: dict | None = None) -> tuple[int, str, float]:
     """One request on a fresh connection. Returns (status, track, latency_ms)."""
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(BASE + path, data=data, method=method)  # noqa: S310 - fixed in-cluster URL
-    req.add_header("Connection", "close")
-    if data is not None:
-        req.add_header("Content-Type", "application/json")
+    headers = {"Connection": "close"}
     if token:
-        req.add_header("Authorization", f"Bearer {token}")
+        headers["Authorization"] = f"Bearer {token}"
     start = time.perf_counter()
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
-            resp.read()
-            status, track = resp.status, resp.headers.get("X-App-Track", "unknown")
-    except urllib.error.HTTPError as e:
-        status, track = e.code, e.headers.get("X-App-Track", "unknown")
-    except OSError:
+        # httpx.request opens a new connection each time, so requests spread over all copies.
+        resp = httpx.request(method, BASE + path, json=body, headers=headers, timeout=10)
+        status, track = resp.status_code, resp.headers.get("X-App-Track", "unknown")
+    except httpx.HTTPError:
         status, track = 599, "unknown"  # timeout / connection failure counts as a server error
     return status, track, (time.perf_counter() - start) * 1000
 
 
 def sign_in(user: str) -> str:
     for _ in range(30):
-        req = urllib.request.Request(  # noqa: S310
-            BASE + "/v1/auth/demo-login",
-            data=json.dumps({"user": user}).encode(),
-            method="POST",
-            headers={"Content-Type": "application/json", "Connection": "close"},
-        )
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
-                return json.loads(resp.read())["token"]
-        except OSError:
-            time.sleep(2)
+            resp = httpx.post(BASE + "/v1/auth/demo-login", json={"user": user}, timeout=10)
+            if resp.status_code == 200:
+                return resp.json()["token"]
+        except httpx.HTTPError:
+            pass
+        time.sleep(2)
     raise SystemExit(f"could not sign in as {user} at {BASE}")
 
 

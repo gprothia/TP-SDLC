@@ -28,6 +28,17 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 API_URL = os.environ.get("API_URL", "http://localhost:8080")
 API_AUDIENCE = os.environ.get("API_AUDIENCE", "")
 COOKIE = "session"
+# Secure cookies everywhere served over HTTPS (SEC-9). Only in-cluster sandboxes, which use
+# plain HTTP, turn it off (deploy/app/web.yaml).
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() != "false"
+# Sent on every page (SEC-8): no MIME sniffing, no framing, no referrer leaks, HTTPS only.
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Strict-Transport-Security": "max-age=31536000",
+}
 
 
 class GoogleIdTokenAuth(httpx.Auth):
@@ -52,6 +63,14 @@ class GoogleIdTokenAuth(httpx.Auth):
 
 app = FastAPI(title="Roadside Assistance")
 client = httpx.AsyncClient(base_url=API_URL, timeout=10, auth=GoogleIdTokenAuth(API_AUDIENCE) if API_AUDIENCE else None)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.update(SECURITY_HEADERS)
+    return response
+
 
 HELP_TYPES = {
     "tow": "Tow",
@@ -217,7 +236,7 @@ async def signin(user: str = Form(...)):
         failed.status_code = 502  # the API refused or couldn't be reached
         return failed
     resp = RedirectResponse("/requests", status_code=303)
-    resp.set_cookie(COOKIE, r.json()["token"], httponly=True, samesite="lax")
+    resp.set_cookie(COOKIE, r.json()["token"], httponly=True, samesite="lax", secure=COOKIE_SECURE)
     return resp
 
 

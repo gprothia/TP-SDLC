@@ -1,10 +1,12 @@
-# Who must approve changes (standards/security.md SEC-5).
+# Who must approve changes (standards/security.md SEC-12).
 # In a real organisation these are teams, e.g. @aaa/security; this demo has one owner.
-/standards/          @gprothia
-/standards/aaa.md    @gprothia
+# Moving to another version of the SDLC standards (the submodule pointer and its config).
+/standards           @gprothia
+/.gitmodules         @gprothia
+/ruff.toml           @gprothia
 /deploy/             @gprothia
 /.github/workflows/  @gprothia
-# The release gate (standards/slo.md SLO-2): changing it is never a standard change.
+# The release gate (standards/release.md REL-2): changing it is never a standard change.
 /scripts/classify_change.py  @gprothia
 /scripts/check_slo.py        @gprothia
 /scripts/prod.sh             @gprothia

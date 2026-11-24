@@ -11,7 +11,7 @@ Conventions:
   to judge whether the tests actually verify what each criterion says.
 
 Also review the spec's enterprise sections (Security & access (AAA), Logging, API contract,
-SLO) against standards/ and the tests: every role not allowed in the Authorization table
+SLO) against the standards' rules (AAA-*, API-*, LOG-*, SEC-6..10) and the tests: every role not allowed in the Authorization table
 should have a 403 test, someone else's record a 404 test, and every audit event a test.
 
 Write a GitHub-flavoured Markdown comment with exactly these sections:

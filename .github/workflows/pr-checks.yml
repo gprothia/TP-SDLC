@@ -35,40 +35,65 @@ env:
   BASE_REF: ${{ github.base_ref || 'main' }}
 
 jobs:
-  # 1) Deterministic gate: every approved acceptance criterion has a test.
+  # 1) Specs and traceability (standards/spec.md, testing.md). Blocks the merge on failure.
   traceability:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with: { submodules: true }
       - uses: actions/setup-python@v6
         with: { python-version: "3.12" }
-      - name: Specs follow the format rules
-        run: python scripts/check_spec.py
-      - name: Every approved criterion has a test
-        run: python scripts/check_traceability.py
-      - name: Prototypes are never built, deployed or imported
+      - name: Specs follow the format rules (SPEC-4..9)
+        run: python standards/checks/check_spec.py
+      - name: Every approved criterion has a test (TEST-1)
+        run: python standards/checks/check_traceability.py
+      - name: Prototypes are never built, deployed or imported (SPEC-2)
         run: |
           if grep -rn "prototypes/" services tests deploy; then
-            echo "::error::services/, tests/ and deploy/ must not use anything under prototypes/ (AGENTS.md 1b)"
+            echo "::error::services/, tests/ and deploy/ must not use anything under prototypes/ (SPEC-2)"
             exit 1
           fi
 
-  # 1b) Code style and safety checks (standards/code-style.md). Blocks the merge on failure.
+  # 1b) Coding standards (standards/coding.md, security.md SEC-4, SEC-5). Blocks the merge on failure.
   style:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with: { submodules: true }
       - uses: actions/setup-python@v6
         with: { python-version: "3.12" }
       - uses: actions/setup-node@v5
         with: { node-version: "22" }
-      - name: Python (ruff)
+      - name: Approved, pinned libraries (CODE-2, CODE-3)
+        run: python standards/checks/check_dependencies.py
+      - name: Dockerfile rules (SEC-4)
+        run: python standards/checks/check_dockerfiles.py
+      - name: Python format, lint, banned imports and security rules (CODE-4, CODE-8, SEC-5)
         run: |
-          pip install -q ruff==0.16.9
+          pip install -q -r standards/checks/requirements.txt
           ruff format --check .
           ruff check .
-      - name: TypeScript tests (eslint)
+      - name: TypeScript tests (eslint, CODE-8)
         run: cd tests/ui && npm ci --no-audit --no-fund && npx eslint .
+
+  # 1c) Security scan (standards/security.md SEC-1, SEC-2, SEC-4). Blocks the merge on failure.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Secrets, vulnerable dependencies and Dockerfile checks (Trivy)
+        # Pinned to a commit, not a tag (SEC-11): this action's tags were hijacked in March 2026.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_MISCONFIG_SCANNERS: dockerfile   # SEC-4 covers Dockerfiles
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true    # SEC-2: only vulnerabilities with a fix available block
+          exit-code: "1"
+          skip-dirs: standards,prototypes
 
   # 2) Advisory: Gemini compares changed specs with changed tests and comments on the PR.
   gemini-spec-review:
@@ -112,7 +137,7 @@ jobs:
             echo "Gemini returned an empty review (attempt $attempt)"; sleep 10
           done
           [ -s review.md ] || echo "_Gemini returned no review this time. Re-run this job to try again._" > review.md
-      - uses: marocchino/sticky-pull-request-comment@v2
+      - uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # v2.9.4 (SEC-11)
         with:
           header: gemini-spec-review
           number: ${{ env.PR_NUMBER }}
@@ -130,19 +155,40 @@ jobs:
           service_account: ${{ env.CI_SA }}
       - uses: google-github-actions/setup-gcloud@v3
       - run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
-      - name: Build and push
+      - name: Build
         run: |
           # Adjust the build contexts to where your services live.
           docker build -t "$AR/api:$SHA"   services/api
           docker build -t "$AR/web:$SHA"   services/web
           docker build -t "$AR/tests:$SHA" tests
+      # SEC-3: deployed images are scanned before they are pushed, so a vulnerable image never
+      # reaches the registry. Pinned to a commit, not a tag (SEC-11).
+      - name: Scan the API image (SEC-3)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.AR }}/api:${{ env.SHA }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan the website image (SEC-3)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.AR }}/web:${{ env.SHA }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          skip-setup-trivy: true
+      - name: Push
+        run: |
           docker push "$AR/api:$SHA"
           docker push "$AR/web:$SHA"
           docker push "$AR/tests:$SHA"
 
   # 4) Deploy into an isolated namespace on GKE Autopilot and run both suites in-cluster.
   sandbox-test:
-    needs: [traceability, style, build]
+    needs: [traceability, style, security, build]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -218,7 +264,7 @@ jobs:
 
       - name: Post the PR check result on the PR (updated in place on every push)
         if: always()
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # v2.9.4 (SEC-11)
         with:
           header: gke-pr-check
           number: ${{ env.PR_NUMBER }}
@@ -231,7 +277,7 @@ jobs:
           path: reports/
           retention-days: 14
 
-      - uses: mikepenz/action-junit-report@v5
+      - uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2 (SEC-11)
         if: always()
         with:
           report_paths: reports/*-junit.xml

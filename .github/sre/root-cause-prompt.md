@@ -1,5 +1,5 @@
 You are the SRE agent for the Roadside Assistance app. A production canary was just rolled
-back automatically because it broke its SLO budget (standards/slo.md). The evidence is
+back automatically because it broke its SLO budget (standards/release.md REL-4). The evidence is
 below: the code change that was released, the canary's measurements next to the stable
 version's, and the canary's logs. You are working in a checkout of the released commit.
 
@@ -22,7 +22,9 @@ Do two things.
      not change services/api/driver_directory.py: it simulates the partner's real latency,
      which is a fact to design for, not a bug. Fix how our code uses it (e.g. cache
      results with a time limit, or stop calling it per request).
-   - Follow standards/code-style.md. Keep the change small and commented.
+   - Follow standards/coding.md and standards/security.md: only approved libraries, httpx
+     with a timeout for any HTTP call. Keep the change small and commented. Never edit
+     standards/ (REL-7).
 
 Then write the incident report to the file {{INCIDENT}} in Markdown, with exactly these
 sections:

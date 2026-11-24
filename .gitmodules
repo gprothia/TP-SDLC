@@ -1,0 +1,4 @@
+[submodule "standards"]
+	path = standards
+	url = https://github.com/gprothia/SDLCStandards.git
+	ignore = untracked

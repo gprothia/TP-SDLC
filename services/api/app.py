@@ -46,11 +46,11 @@ SEED = os.environ.get("SEED_TEST_DATA", "true").lower() == "true"
 # Test-only endpoints are registered only when this is on. Off by default; the GKE sandbox
 # deployment turns it on. Never on in UAT or production.
 TEST_HOOKS = os.environ.get("ENABLE_TEST_HOOKS", "false").lower() == "true"
-# Demo sign-in only (standards/aaa.md): production uses the company identity provider.
+# Demo sign-in only (AAA-3): production uses the company identity provider.
 SECRET = os.environ.get("DEMO_AUTH_SECRET", "demo-only-not-a-secret").encode()
 TOKEN_TTL_S = 8 * 3600
 # Release identity (deploy/prod): which build answered, and whether it is the stable or the
-# canary copy. Sent on every response so a canary can be measured on its own (standards/slo.md).
+# canary copy. Sent on every response so a canary can be measured on its own (REL-3).
 APP_VERSION = os.environ.get("APP_VERSION", "dev")
 APP_TRACK = os.environ.get("APP_TRACK", "")
 
@@ -90,7 +90,7 @@ def _scrub(value):
 
 
 def emit(event: str, **fields) -> None:
-    """One JSON object per line (standards/logging.md). Phone numbers never appear in clear."""
+    """One JSON object per line (LOG-1, LOG-4). Phone numbers never appear in clear."""
     record = {
         "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
         "severity": fields.pop("severity", "INFO"),
@@ -154,6 +154,9 @@ async def request_context(request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Request-ID"] = rid
         response.headers["X-App-Version"] = APP_VERSION
+        # SEC-8: no MIME sniffing; personal data is never cached by browsers or proxies.
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Cache-Control"] = "no-store"
         if APP_TRACK:
             response.headers["X-App-Track"] = APP_TRACK
         if request.url.path != "/healthz":
@@ -627,5 +630,5 @@ if TEST_HOOKS:
 
     @app.get("/test/logs", include_in_schema=False)
     def recent_logs(limit: int = 50):
-        """Recent structured log lines, so acceptance tests can check standards/logging.md."""
+        """Recent structured log lines, so acceptance tests can check the LOG rules."""
         return list(RECENT_LOGS)[-limit:]
