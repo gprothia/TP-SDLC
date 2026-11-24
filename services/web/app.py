@@ -700,10 +700,10 @@ async def leaderboard_page(request: Request, tag: str | None = None):
 
     data = resp.json()
     all_cls = "pill-link active" if not tag else "pill-link"
-    filter_links = [f'<a class="{all_cls}" href="/leaderboard">All drivers</a>']
+    filter_links = [f'<a role="button" class="{all_cls}" href="/leaderboard">All drivers</a>']
     for t in RATING_TAGS:
         cls = "pill-link active" if tag == t else "pill-link"
-        filter_links.append(f'<a class="{cls}" href="/leaderboard?tag={quote(t)}">{html.escape(t)}</a>')
+        filter_links.append(f'<a role="button" class="{cls}" href="/leaderboard?tag={quote(t)}">{html.escape(t)}</a>')
 
     items_html = []
     for idx, d in enumerate(data["drivers"], start=1):
