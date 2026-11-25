@@ -1,6 +1,8 @@
 FROM python:3.12-slim
-# Run as an unprivileged user (standards/security.md SEC-4).
-RUN useradd --system --uid 10001 --no-create-home app
+# Patch fixed OS vulnerabilities (SEC-3) and run as an unprivileged user (SEC-4).
+RUN apt-get update && apt-get install -y --no-install-recommends libzstd1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --no-create-home app
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
