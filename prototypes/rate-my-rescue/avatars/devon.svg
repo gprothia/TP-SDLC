@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Driver Devon Brooks">
+  <defs>
+    <linearGradient id="bg-devon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FCE7F3"/>
+      <stop offset="100%" stop-color="#FBCFE8"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="60" fill="url(#bg-devon)"/>
+  <path d="M22 120 C24 88 96 88 98 120 Z" fill="#0B3D91"/>
+  <path d="M48 92 L60 108 L72 92 Z" fill="#FFFFFF"/>
+  <rect x="52" y="76" width="16" height="18" rx="7" fill="#DFAA88"/>
+  <circle cx="60" cy="56" r="24" fill="#ECC0A2"/>
+  <path d="M36 52 C35 30 85 30 84 52 C79 41 41 41 36 52 Z" fill="#8C4A27"/>
+  <circle cx="51" cy="57" r="2.5" fill="#1F2937"/>
+  <circle cx="69" cy="57" r="2.5" fill="#1F2937"/>
+  <path d="M52 67 Q60 72 68 67" fill="none" stroke="#8C4A27" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

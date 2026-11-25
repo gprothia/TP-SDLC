@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rate My Rescue — AAA Roadside Assistance Prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-badge">AAA</span>
+        <span>Roadside Assistance</span>
+      </div>
+      <span class="proto-pill" title="Static prototype with fake data only">Fake Data Prototype</span>
+    </div>
+    <nav class="nav-tabs" aria-label="Prototype views">
+      <button type="button" class="nav-tab active" data-view="rate" id="tab-rate">Rate rescue</button>
+      <button type="button" class="nav-tab" data-view="list" id="tab-list">
+        My rescues <span class="tab-count" id="rescue-count">5</span>
+      </button>
+      <button type="button" class="nav-tab" data-view="leaderboard" id="tab-leaderboard">Top drivers this month</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <!-- SCREEN 1: Rate a rescue -->
+    <section id="view-rate" class="view active" aria-labelledby="rate-heading">
+      <div class="card context-card">
+        <div class="context-top">
+          <div class="context-meta">
+            <span class="rescue-id" id="rate-rescue-id">RSA-1042</span>
+            <span class="status-badge completed" id="rate-status-badge">Completed</span>
+          </div>
+          <button type="button" class="btn-link" id="btn-switch-rescue">Switch rescue →</button>
+        </div>
+
+        <div class="driver-strip">
+          <img id="rate-driver-photo" class="driver-avatar" src="avatars/sam.svg" alt="Driver photo" />
+          <div class="driver-info">
+            <div class="driver-name" id="rate-driver-name">Sam Rivera</div>
+            <div class="driver-sub" id="rate-rescue-summary">Battery jump-start · 1420 Oakridge Ave · Today, 2:15 PM</div>
+          </div>
+        </div>
+
+        <div class="enroute-notice hidden" id="enroute-notice" role="status">
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <span>This rescue is still <strong>en route</strong> (<span id="enroute-eta"></span>). You can still submit a rating right now.</span>
+        </div>
+      </div>
+
+      <form class="card rating-card" id="rating-form" novalidate>
+        <h1 id="rate-heading" class="rate-title">How did we do?</h1>
+        <p class="rate-subtitle">Rate your roadside rescue and recognize your driver.</p>
+
+        <div class="field-group">
+          <span class="field-label">Your rating</span>
+          <div class="star-row" role="radiogroup" aria-label="Star rating from 1 to 5">
+            <button type="button" class="star-btn" data-star="1" aria-label="1 star" aria-checked="false" role="radio">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.93 5.94 6.56.95-4.74 4.62 1.12 6.53L12 17.46l-5.87 3.08 1.12-6.53-4.74-4.62 6.56-.95L12 2.5z"/></svg>
+            </button>
+            <button type="button" class="star-btn" data-star="2" aria-label="2 stars" aria-checked="false" role="radio">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.93 5.94 6.56.95-4.74 4.62 1.12 6.53L12 17.46l-5.87 3.08 1.12-6.53-4.74-4.62 6.56-.95L12 2.5z"/></svg>
+            </button>
+            <button type="button" class="star-btn" data-star="3" aria-label="3 stars" aria-checked="false" role="radio">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.93 5.94 6.56.95-4.74 4.62 1.12 6.53L12 17.46l-5.87 3.08 1.12-6.53-4.74-4.62 6.56-.95L12 2.5z"/></svg>
+            </button>
+            <button type="button" class="star-btn" data-star="4" aria-label="4 stars" aria-checked="false" role="radio">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.93 5.94 6.56.95-4.74 4.62 1.12 6.53L12 17.46l-5.87 3.08 1.12-6.53-4.74-4.62 6.56-.95L12 2.5z"/></svg>
+            </button>
+            <button type="button" class="star-btn" data-star="5" aria-label="5 stars" aria-checked="false" role="radio">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.93 5.94 6.56.95-4.74 4.62 1.12 6.53L12 17.46l-5.87 3.08 1.12-6.53-4.74-4.62 6.56-.95L12 2.5z"/></svg>
+            </button>
+          </div>
+          <div class="star-caption" id="star-caption">Tap a star to rate</div>
+          <div class="form-error hidden" id="star-error" role="alert">Please pick 1 to 5 stars before submitting.</div>
+        </div>
+
+        <div class="field-group">
+          <span class="field-label">What went well? <span class="optional">(pick any that apply)</span></span>
+          <div class="tags-row" id="tags-row">
+            <button type="button" class="tag-pill" data-tag="On time" aria-pressed="false">On time</button>
+            <button type="button" class="tag-pill" data-tag="Friendly driver" aria-pressed="false">Friendly driver</button>
+            <button type="button" class="tag-pill" data-tag="Explained the fix" aria-pressed="false">Explained the fix</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="rating-comment">
+            Leave a comment <span class="optional">(optional)</span>
+          </label>
+          <textarea
+            id="rating-comment"
+            class="comment-box"
+            rows="3"
+            maxlength="300"
+            placeholder="Tell us what stood out about your driver or rescue..."
+          ></textarea>
+          <div class="char-count" id="char-count">0 / 300</div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-primary" id="btn-submit-rating">Submit rating</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- RESCUE LIST: Rate any rescue, including ones still en route -->
+    <section id="view-list" class="view" aria-labelledby="list-heading">
+      <div class="section-header">
+        <div>
+          <h1 id="list-heading" class="page-title">My rescues</h1>
+          <p class="page-subtitle">Pick any rescue to rate — including active rescues still en route.</p>
+        </div>
+        <div class="filter-pills" role="group" aria-label="Filter rescues">
+          <button type="button" class="filter-pill active" data-filter="all">All</button>
+          <button type="button" class="filter-pill" data-filter="completed">Completed</button>
+          <button type="button" class="filter-pill" data-filter="en_route">En route</button>
+        </div>
+      </div>
+
+      <div id="rescue-list" class="rescue-list"></div>
+    </section>
+
+    <!-- SCREEN 2: Thank-you screen -->
+    <section id="view-thanks" class="view" aria-labelledby="thanks-heading">
+      <div class="card thanks-card">
+        <div class="thanks-icon" aria-hidden="true">✓</div>
+        <h1 id="thanks-heading" class="thanks-title">Thanks for your feedback!</h1>
+        <p class="thanks-subtitle" id="thanks-subtitle">
+          Your rating for Sam Rivera has been recorded.
+        </p>
+
+        <div class="thanks-summary">
+          <div class="summary-row">
+            <img id="thanks-driver-photo" class="driver-avatar small" src="avatars/sam.svg" alt="Driver photo" />
+            <div>
+              <div class="summary-driver" id="thanks-driver-name">Sam Rivera</div>
+              <div class="summary-meta" id="thanks-rescue-meta">RSA-1042 · Completed</div>
+            </div>
+            <div class="summary-stars" id="thanks-stars" aria-label="Submitted star rating"></div>
+          </div>
+
+          <div class="summary-tags hidden" id="thanks-tags"></div>
+          <blockquote class="summary-comment hidden" id="thanks-comment"></blockquote>
+        </div>
+
+        <p class="leaderboard-hint" id="thanks-leaderboard-hint"></p>
+
+        <div class="thanks-actions">
+          <button type="button" class="btn-primary" id="btn-go-leaderboard">View top drivers this month</button>
+          <button type="button" class="btn-secondary" id="btn-rate-another">Rate another rescue</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 3: Public "Top drivers this month" leaderboard -->
+    <section id="view-leaderboard" class="view" aria-labelledby="leaderboard-heading">
+      <div class="card leaderboard-hero">
+        <span class="public-pill">Public Leaderboard · November 2026</span>
+        <h1 id="leaderboard-heading" class="leaderboard-title">Top drivers this month</h1>
+        <p class="leaderboard-subtitle">
+          Celebrating our highest-rated roadside technicians based on member feedback.
+        </p>
+      </div>
+
+      <div id="leaderboard-list" class="leaderboard-list"></div>
+
+      <div class="card leaderboard-footer-cta">
+        <div>
+          <strong>Had a rescue recently?</strong>
+          <p class="muted">Your stars help drivers earn top monthly honors.</p>
+        </div>
+        <button type="button" class="btn-secondary" id="btn-leaderboard-rate">Rate a rescue</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Static prototype · Fake data only · No backend calls</span>
+    <button type="button" class="btn-reset" id="btn-reset-demo">Reset demo</button>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

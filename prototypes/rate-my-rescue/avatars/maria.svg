@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Driver Maria Chen">
+  <defs>
+    <linearGradient id="bg-maria" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#D1FAE5"/>
+      <stop offset="100%" stop-color="#A7F3D0"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="60" fill="url(#bg-maria)"/>
+  <path d="M22 120 C24 88 96 88 98 120 Z" fill="#0B3D91"/>
+  <path d="M49 92 L60 107 L71 92 Z" fill="#FFFFFF"/>
+  <rect x="52" y="76" width="16" height="18" rx="7" fill="#EDC3A1"/>
+  <path d="M33 56 C33 28 87 28 87 56 L87 78 C78 70 42 70 33 78 Z" fill="#1E1B18"/>
+  <circle cx="60" cy="57" r="23" fill="#F4CEAE"/>
+  <path d="M37 52 C42 36 78 36 83 52 C74 44 46 44 37 52 Z" fill="#1E1B18"/>
+  <circle cx="51" cy="58" r="2.5" fill="#1F2937"/>
+  <circle cx="69" cy="58" r="2.5" fill="#1F2937"/>
+  <path d="M52 67 Q60 73 68 67" fill="none" stroke="#9A4E3A" stroke-width="2.5" stroke-linecap="round"/>
+</svg>
