@@ -287,15 +287,65 @@ class HelpType(StrEnum):
 
 STATUSES = ["received", "assigned", "en_route", "arrived", "completed"]
 REQUESTS: dict[str, dict] = {}
+DRIVERS: dict[str, dict] = {}
+ALLOWED_RATING_TAGS = ("On time", "Friendly driver", "Explained the fix")
 
 
 def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _seed_drivers() -> None:
+    DRIVERS.clear()
+    for d in (
+        {
+            "driver_name": "Sam Rivera",
+            "photo_url": "/avatars/sam.svg",
+            "truck_unit": "Truck #T-204",
+            "rescue_count": 47,
+            "rating_count": 12,
+            "total_stars": 58,
+        },
+        {
+            "driver_name": "Maria Chen",
+            "photo_url": "/avatars/maria.svg",
+            "truck_unit": "Truck #T-118",
+            "rescue_count": 52,
+            "rating_count": 15,
+            "total_stars": 72,
+        },
+        {
+            "driver_name": "Elena Ortiz",
+            "photo_url": "/avatars/elena.svg",
+            "truck_unit": "Truck #T-309",
+            "rescue_count": 39,
+            "rating_count": 10,
+            "total_stars": 47,
+        },
+        {
+            "driver_name": "Marcus Vance",
+            "photo_url": "/avatars/marcus.svg",
+            "truck_unit": "Truck #T-412",
+            "rescue_count": 34,
+            "rating_count": 8,
+            "total_stars": 37,
+        },
+        {
+            "driver_name": "Devon Brooks",
+            "photo_url": "/avatars/devon.svg",
+            "truck_unit": "Truck #T-155",
+            "rescue_count": 28,
+            "rating_count": 3,  # below 5-rating threshold; excluded from leaderboard
+            "total_stars": 15,
+        },
+    ):
+        DRIVERS[d["driver_name"]] = d
+
+
 def seed() -> None:
     REQUESTS.clear()
     AUDIT.clear()
+    _seed_drivers()
     r = {
         "id": "RSA-1001",
         "member": "bob",
@@ -454,6 +504,101 @@ async def cancel_request(request_id: str, user: dict = Depends(require("member")
     r["history"].append({"status": "cancelled", "at": now()})
     audit("request.cancelled", actor=user["sub"], target=request_id, previous_status=prev)
     return r
+
+
+# --------------------------------------------------------------------------- RSA-006 rate my rescue
+
+
+class RatingIn(BaseModel):
+    stars: int = Field(ge=1, le=5)
+    tags: list[str] = Field(default_factory=list)
+    comment: str | None = Field(default=None)
+
+    @field_validator("tags")
+    @classmethod
+    def valid_tags(cls, v: list[str]) -> list[str]:
+        for tag in v:
+            if tag not in ALLOWED_RATING_TAGS:
+                raise ValueError(f"unsupported tag: {tag}")
+        return list(dict.fromkeys(v))
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        trimmed = v.strip()
+        if not trimmed:
+            return None
+        if len(trimmed) > 300:
+            raise ValueError("comment must be 300 characters or fewer")
+        return trimmed
+
+
+def _find_or_create_driver(driver_name: str, truck_unit: str | None) -> dict:
+    if driver_name in DRIVERS:
+        return DRIVERS[driver_name]
+    for name, entry in DRIVERS.items():
+        if name.split(" ")[0].lower() == driver_name.lower():
+            return entry
+    slug = re.sub(r"[^a-z0-9]+", "-", driver_name.lower()).strip("-") or "driver"
+    DRIVERS[driver_name] = {
+        "driver_name": driver_name,
+        "photo_url": f"/avatars/{slug}.svg",
+        "truck_unit": truck_unit or "Truck #T-100",
+        "rescue_count": 1,
+        "rating_count": 0,
+        "total_stars": 0,
+    }
+    return DRIVERS[driver_name]
+
+
+@app.post("/v1/requests/{request_id}/rating", status_code=201)
+async def rate_request(request_id: str, body: RatingIn, user: dict = Depends(require("member"))):
+    r = REQUESTS.get(request_id)
+    if not r or r["member"] != user["sub"]:
+        raise ApiError(404, "REQUEST_NOT_FOUND", "Request not found")
+    if r["status"] != "completed" or not r.get("driver_name"):
+        raise ApiError(409, "INVALID_TRANSITION", "Only completed rescues with an assigned driver can be rated")
+    if r.get("rating") is not None:
+        raise ApiError(409, "ALREADY_RATED", "This rescue has already been rated")
+
+    driver = _find_or_create_driver(r["driver_name"], r.get("driver_truck"))
+    driver["total_stars"] += body.stars
+    driver["rating_count"] += 1
+
+    rating = {
+        "request_id": request_id,
+        "driver_name": r["driver_name"],
+        "stars": body.stars,
+        "tags": body.tags,
+        "comment": body.comment,
+        "created_at": now(),
+    }
+    r["rating"] = rating
+    audit("rating.created", actor=user["sub"], target=request_id, stars=body.stars, tags=body.tags)
+    return rating
+
+
+@app.get("/v1/drivers/leaderboard")
+async def driver_leaderboard(user: dict = Depends(require("member", "dispatcher"))):
+    qualified = []
+    for d in DRIVERS.values():
+        if d["rating_count"] < 5:
+            continue
+        avg = round(d["total_stars"] / d["rating_count"], 2)
+        qualified.append(
+            {
+                "driver_name": d["driver_name"],
+                "photo_url": d["photo_url"],
+                "truck_unit": d["truck_unit"],
+                "rescue_count": d["rescue_count"],
+                "rating_count": d["rating_count"],
+                "average_stars": avg,
+            }
+        )
+    qualified.sort(key=lambda d: (-d["average_stars"], -d["rescue_count"]))
+    return {"drivers": qualified}
 
 
 # --------------------------------------------------------------------------- test hooks (sandbox only)

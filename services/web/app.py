@@ -144,9 +144,13 @@ def page(title: str, body: str, user: dict | None = None) -> HTMLResponse:
         )
     nav = ""
     if user and user["role"] == "member":
-        nav = '<a href="/requests/new">Request help</a><a href="/requests">My requests</a>'
+        nav = (
+            '<a href="/requests/new">Request help</a>'
+            '<a href="/requests">My requests</a>'
+            '<a href="/leaderboard">Top drivers</a>'
+        )
     elif user:
-        nav = '<a href="/requests">All requests</a>'
+        nav = '<a href="/requests">All requests</a><a href="/leaderboard">Top drivers</a>'
     return HTMLResponse(
         f"""<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
 <style>{CSS}</style></head><body>
@@ -442,6 +446,11 @@ async def show_request(request: Request, request_id: str, created: int = 0):
 <label>ETA (minutes)<input name="eta_minutes" type="number" min="0" max="600"></label>
 <label>Driver<input name="driver"></label>
 <button type="submit">Save update</button></form></div>"""
+    rate_cta = ""
+    if user["role"] == "member" and r["status"] == "completed" and not r.get("rating"):
+        rate_cta = (
+            f'<div class="card"><a href="/requests/{r["id"]}/rate"><button type="button">Rate rescue</button></a></div>'
+        )
     return page(
         r["id"],
         f"""<div class="card">{banner}<h1>Request {r["id"]}</h1>
@@ -451,7 +460,7 @@ async def show_request(request: Request, request_id: str, created: int = 0):
 <tr><th>Status</th><td data-testid="status">{STATUS_LABEL[r["status"]]}</td></tr>
 <tr><th>ETA</th><td data-testid="eta">{eta}</td></tr>
 <tr><th>Driver</th><td data-testid="driver">{driver}</td></tr>
-</table></div>{_live_tracking_html(r, user)}{update}""",
+</table></div>{rate_cta}{_live_tracking_html(r, user)}{update}""",
         user,
     )
 
@@ -499,3 +508,165 @@ async def cancel_request(request: Request, request_id: str):
             user,
         )
     return RedirectResponse(f"/requests/{request_id}", status_code=303)
+
+
+# --------------------------------------------------------------------------- RSA-006 rate my rescue
+
+RATING_TAGS = ("On time", "Friendly driver", "Explained the fix")
+AVATAR_COLORS = {
+    "sam": ("#0B3D91", "#DBEAFE"),
+    "maria": ("#137333", "#D1FAE5"),
+    "elena": ("#B45309", "#FEF3C7"),
+    "marcus": ("#374151", "#E5E7EB"),
+    "devon": ("#9D174D", "#FCE7F3"),
+}
+
+
+@app.get("/avatars/{slug}.svg")
+async def driver_avatar(slug: str):
+    fg, bg = AVATAR_COLORS.get(slug.lower(), ("#0B3D91", "#E8F0FE"))
+    initial = html.escape(slug[:1].upper() if slug else "D")
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">'
+        f'<circle cx="32" cy="32" r="32" fill="{bg}"/>'
+        f'<text x="32" y="40" text-anchor="middle" font-family="Arial,sans-serif" '
+        f'font-size="26" font-weight="700" fill="{fg}">{initial}</text></svg>'
+    )
+    return HTMLResponse(content=svg, media_type="image/svg+xml")
+
+
+def _rate_form_html(request_id: str, r: dict, error: str = "") -> str:
+    err_html = f'<p class="error" role="alert">{html.escape(error)}</p>' if error else ""
+    d_name = html.escape(r.get("driver_name") or r.get("driver") or "Your driver")
+    stars_html = "".join(
+        f'<label style="display:inline-flex;flex-direction:row;align-items:center;gap:6px;margin-right:12px">'
+        f'<input type="radio" name="stars" value="{n}"> {n} {"star" if n == 1 else "stars"}</label>'
+        for n in range(1, 6)
+    )
+    tags_html = "".join(
+        f'<label style="display:inline-flex;flex-direction:row;align-items:center;gap:6px;margin-right:12px">'
+        f'<input type="checkbox" name="tags" value="{html.escape(tag)}"> {html.escape(tag)}</label>'
+        for tag in RATING_TAGS
+    )
+    return f"""<div class="card">
+<h1>How did we do?</h1>
+<p class="muted">Request {html.escape(request_id)} &bull; Driver: {d_name}</p>
+{err_html}
+<form method="post" action="/requests/{html.escape(request_id)}/rate">
+  <fieldset style="border:0;padding:0;margin:0 0 14px">
+    <legend style="font-size:14px;margin-bottom:6px">Your rating</legend>{stars_html}
+  </fieldset>
+  <fieldset style="border:0;padding:0;margin:0 0 14px">
+    <legend style="font-size:14px;margin-bottom:6px">What went well?</legend>{tags_html}
+  </fieldset>
+  <label for="comment">Leave a comment (optional)
+    <textarea id="comment" name="comment" rows="3" maxlength="300"
+      style="padding:9px;border:1px solid #DADCE0;border-radius:8px;font-size:15px"></textarea>
+  </label>
+  <button type="submit">Submit rating</button>
+</form></div>"""
+
+
+@app.get("/requests/{request_id}/rate")
+async def rate_form(request: Request, request_id: str):
+    user = await signed_in(request)
+    if not user:
+        return to_signin()
+    resp = await client.get(f"/v1/requests/{request_id}", headers=auth_headers(request))
+    if resp.status_code != 200:
+        return page("Not found", '<div class="card"><h1>Request not found</h1></div>', user)
+    return page(f"Rate {request_id}", _rate_form_html(request_id, resp.json()), user)
+
+
+@app.post("/requests/{request_id}/rate")
+async def submit_rating(request: Request, request_id: str):
+    user = await signed_in(request)
+    if not user:
+        return to_signin()
+    form = await request.form()
+    stars_raw = str(form.get("stars", "")).strip()
+    tags = [str(t) for t in form.getlist("tags")]
+    comment = str(form.get("comment", ""))
+    if not stars_raw.isdigit():
+        req_resp = await client.get(f"/v1/requests/{request_id}", headers=auth_headers(request))
+        req_data = req_resp.json() if req_resp.status_code == 200 else {}
+        return page(f"Rate {request_id}", _rate_form_html(request_id, req_data, "Please select 1 to 5 stars."), user)
+
+    r = await client.post(
+        f"/v1/requests/{request_id}/rating",
+        json={"stars": int(stars_raw), "tags": tags, "comment": comment},
+        headers=auth_headers(request),
+    )
+    if r.status_code == 401:
+        return to_signin()
+    if r.status_code != 201:
+        req_resp = await client.get(f"/v1/requests/{request_id}", headers=auth_headers(request))
+        req_data = req_resp.json() if req_resp.status_code == 200 else {}
+        return page(
+            f"Rate {request_id}",
+            _rate_form_html(request_id, req_data, r.json().get("message", "Could not submit rating.")),
+            user,
+        )
+
+    rating = r.json()
+    board_resp = await client.get("/v1/drivers/leaderboard", headers=auth_headers(request))
+    avg_text = "Updated"
+    if board_resp.status_code == 200:
+        for d in board_resp.json().get("drivers", []):
+            if d["driver_name"] == rating["driver_name"] or d["driver_name"].split(" ")[0] == rating["driver_name"]:
+                avg_text = f"{d['average_stars']} ★ ({d['rating_count']} ratings)"
+                break
+    tags_out = ", ".join(html.escape(t) for t in rating.get("tags", [])) or "None"
+    comment_out = html.escape(rating["comment"]) if rating.get("comment") else "No comment left"
+    return page(
+        "Thanks for your feedback!",
+        f"""<div class="card">
+<h1>Thanks for your feedback!</h1>
+<p>Your rating for <strong>{html.escape(rating["driver_name"])}</strong>
+  on {html.escape(request_id)} has been recorded.</p>
+<p data-testid="submitted-stars">Rating: <strong>{rating["stars"]} / 5 ★</strong></p>
+<p data-testid="submitted-tags">Tags: {tags_out}</p>
+<p data-testid="submitted-comment">Comment: {comment_out}</p>
+<p data-testid="driver-average">Driver monthly average: <strong>{html.escape(avg_text)}</strong></p>
+<div class="actions">
+  <a href="/leaderboard"><button type="button">View top drivers this month</button></a>
+  <a href="/requests"><button type="button" class="btn-secondary">Back to my requests</button></a>
+</div></div>""",
+        user,
+    )
+
+
+@app.get("/leaderboard")
+async def leaderboard_page(request: Request):
+    user = await signed_in(request)
+    if not user:
+        return to_signin()
+    resp = await client.get("/v1/drivers/leaderboard", headers=auth_headers(request))
+    if resp.status_code == 401:
+        return to_signin()
+    drivers = resp.json().get("drivers", []) if resp.status_code == 200 else []
+    rows = "".join(
+        f"""<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:14px">
+  <div style="display:flex;align-items:center;gap:12px">
+    <strong>#{idx}</strong>
+    <img src="{html.escape(d["photo_url"])}" alt="{html.escape(d["driver_name"])}"
+      width="48" height="48" style="border-radius:50%">
+    <div>
+      <div><strong>{html.escape(d["driver_name"])}</strong></div>
+      <div class="muted">{html.escape(d["truck_unit"])} &bull; {d["rescue_count"]} rescues this month</div>
+    </div>
+  </div>
+  <div style="text-align:right">
+    <div><strong>★ {d["average_stars"]}</strong></div>
+    <div class="muted">{d["rating_count"]} ratings</div>
+  </div>
+</div>"""
+        for idx, d in enumerate(drivers, start=1)
+    )
+    return page(
+        "Top drivers this month",
+        f"""<div class="card"><h1>Top drivers this month</h1>
+<p class="muted">Highest-rated roadside technicians based on member feedback (5+ ratings).</p></div>
+<div data-testid="leaderboard-list">{rows}</div>""",
+        user,
+    )
