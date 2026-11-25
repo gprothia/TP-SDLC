@@ -66,6 +66,9 @@ These are facts about this repository, not rules.
   `token("dana")`, `new_request()`.
 - **UI test helpers** (`tests/ui/helpers.ts`): `signIn(page, 'alice')`; `API`, `apiToken()` and
   `apiHeaders()` to set up data through the API.
+- **Load generator** (`tools/loadgen.py`): synthetic traffic for the canary. It runs inside the
+  API image (`scripts/prod.sh`), so it may only use libraries listed in
+  `services/api/requirements.txt`; a new import there needs that file updated too.
 - **Environments:** dev sandbox `dev-<repo>-<branch>`, PR sandbox `<repo>-pr-<N>` (GKE);
   UAT `tp-sdlc-uat-web` / `-api` (Cloud Run); production `<repo>-prod` (GKE, 9 stable + 1 canary).
 
